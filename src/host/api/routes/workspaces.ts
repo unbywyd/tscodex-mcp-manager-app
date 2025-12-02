@@ -19,6 +19,35 @@ export function createWorkspaceRoutes(router: Router, ctx: RouteContext): void {
     }
   });
 
+  // Find workspace by project path (for IDE extensions)
+  // GET /api/workspaces/by-path?path=/path/to/project
+  router.get('/api/workspaces/by-path', async (req: Request, res: Response) => {
+    try {
+      const projectPath = req.query.path as string;
+
+      if (!projectPath) {
+        res.status(400).json({
+          success: false,
+          error: 'path query parameter is required',
+        });
+        return;
+      }
+
+      const workspace = ctx.workspaceStore.findByProjectRoot(projectPath);
+
+      res.json({
+        success: true,
+        exists: !!workspace,
+        workspace: workspace || null,
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  });
+
   // Get single workspace
   router.get('/api/workspaces/:id', async (req: Request, res: Response) => {
     try {

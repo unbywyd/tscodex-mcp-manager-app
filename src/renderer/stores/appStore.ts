@@ -14,6 +14,12 @@ import type {
 const API_BASE = 'http://127.0.0.1:4040/api';
 const WS_URL = 'ws://127.0.0.1:4040/events';
 
+// WebSocket reconnection state (module-level to persist across store updates)
+let wsReconnectAttempts = 0;
+let wsReconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+const WS_MAX_RECONNECT_DELAY = 30000; // Max 30 seconds between attempts
+const WS_BASE_RECONNECT_DELAY = 1000; // Start with 1 second
+
 // Debounce helper
 function debounce<T extends (...args: unknown[]) => unknown>(
   fn: T,
@@ -58,6 +64,7 @@ interface AppState {
   startServer: (serverId: string) => Promise<void>;
   stopServer: (serverId: string) => Promise<void>;
   restartServer: (serverId: string) => Promise<void>;
+  restartAllServers: () => Promise<{ restarted: number; failed: number }>;
   deleteServer: (serverId: string) => Promise<void>;
 
   // Workspace actions
@@ -107,10 +114,23 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // Connect WebSocket for real-time updates
   connectWebSocket: () => {
+    // Clear any pending reconnect timeout
+    if (wsReconnectTimeout) {
+      clearTimeout(wsReconnectTimeout);
+      wsReconnectTimeout = null;
+    }
+
+    // Don't connect if already have an active connection
+    const currentWs = get().ws;
+    if (currentWs && currentWs.readyState === WebSocket.CONNECTING) {
+      return;
+    }
+
     const ws = new WebSocket(WS_URL);
 
     ws.onopen = () => {
       console.log('WebSocket connected');
+      wsReconnectAttempts = 0; // Reset on successful connection
       set({ isConnected: true });
     };
 
@@ -118,12 +138,20 @@ export const useAppStore = create<AppState>((set, get) => ({
       console.log('WebSocket disconnected');
       set({ isConnected: false, ws: null });
 
-      // Reconnect after 5 seconds
-      setTimeout(() => {
-        if (!get().ws) {
+      // Schedule reconnect with exponential backoff
+      if (!wsReconnectTimeout) {
+        const delay = Math.min(
+          WS_BASE_RECONNECT_DELAY * Math.pow(2, wsReconnectAttempts),
+          WS_MAX_RECONNECT_DELAY
+        );
+        wsReconnectAttempts++;
+        console.log(`WebSocket reconnecting in ${delay}ms (attempt ${wsReconnectAttempts})`);
+
+        wsReconnectTimeout = setTimeout(() => {
+          wsReconnectTimeout = null;
           get().connectWebSocket();
-        }
-      }, 5000);
+        }, delay);
+      }
     };
 
     ws.onmessage = (event) => {
@@ -135,8 +163,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     };
 
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
+    ws.onerror = () => {
+      // Error is logged by onclose, just silently handle here
+      // The onclose handler will take care of reconnection
     };
 
     set({ ws });
@@ -310,6 +339,27 @@ export const useAppStore = create<AppState>((set, get) => ({
       await get().fetchServers();
     } catch (error) {
       console.error('Failed to restart server:', error);
+      throw error;
+    }
+  },
+
+  // Restart all running servers (useful after changing global secrets)
+  restartAllServers: async () => {
+    try {
+      const response = await fetch(`${API_BASE}/instances/restart-all`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error);
+      }
+
+      await get().fetchServers();
+      return { restarted: data.restarted, failed: data.failed };
+    } catch (error) {
+      console.error('Failed to restart all servers:', error);
       throw error;
     }
   },

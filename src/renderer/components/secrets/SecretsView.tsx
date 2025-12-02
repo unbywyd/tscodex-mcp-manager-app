@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Key, Plus, Trash2, Eye, EyeOff, Save, Info } from 'lucide-react';
-import { useAppStore } from '../../stores/appStore';
+import { Key, Plus, Trash2, Eye, EyeOff, Save, Info, AlertCircle } from 'lucide-react';
 
 interface SecretsViewProps {
   workspaceId: string;
@@ -13,62 +12,53 @@ interface SecretEntry {
   isDirty?: boolean;
 }
 
-// Scope tag colors - same as in ServerSecretsManager for consistency
-type SecretScope = 'global' | 'workspace';
-const scopeColors: Record<SecretScope, { bg: string; text: string; label: string }> = {
+// Global secrets are stored with a special "app" serverId
+const GLOBAL_SERVER_ID = '__app__';
+
+// Scope tag colors
+const scopeColors = {
   global: { bg: 'bg-gray-600', text: 'text-gray-200', label: 'Global' },
-  workspace: { bg: 'bg-blue-600', text: 'text-blue-200', label: 'Workspace' },
 };
 
 export function SecretsView({ workspaceId }: SecretsViewProps) {
-  const { servers } = useAppStore();
-  const [selectedServerId, setSelectedServerId] = useState<string | null>(null);
   const [secrets, setSecrets] = useState<SecretEntry[]>([]);
   const [showValues, setShowValues] = useState<Record<string, boolean>>({});
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [keyErrors, setKeyErrors] = useState<Record<number, string>>({});
+  const [error, setError] = useState<string | null>(null);
 
   // Determine scope based on workspaceId
-  const scope: SecretScope = workspaceId === 'global' ? 'global' : 'workspace';
-  const scopeInfo = scopeColors[scope];
+  const scope = workspaceId === 'global' ? 'global' : 'workspace';
+  const scopeInfo = scopeColors.global;
 
   // Prefix for secret keys
   const SECRET_PREFIX = 'SECRET_';
 
-  // Validate secret key format: only Latin letters, numbers, underscore, and hyphen
+  // Validate secret key format
   const validateSecretKey = (key: string): string | null => {
-    if (!key) return null; // Empty is OK (will be validated on save)
+    if (!key) return null;
 
-    // Remove SECRET_ prefix if present for validation
-    const cleanKey = key.toUpperCase().startsWith(SECRET_PREFIX)
-      ? key.slice(SECRET_PREFIX.length)
-      : key;
-
-    // Only allow: A-Z, a-z, 0-9, _, -
     const validPattern = /^[A-Za-z0-9_-]+$/;
-    if (!validPattern.test(cleanKey)) {
+    if (!validPattern.test(key)) {
       return 'Key can only contain letters, numbers, underscore (_), and hyphen (-)';
     }
 
     return null;
   };
 
-  // Load secrets when server is selected
+  // Load secrets on mount
   useEffect(() => {
-    if (selectedServerId) {
-      loadSecrets(selectedServerId);
-    } else {
-      setSecrets([]);
-    }
-  }, [selectedServerId, workspaceId]);
+    loadSecrets();
+  }, [workspaceId]);
 
-  const loadSecrets = async (serverId: string) => {
+  const loadSecrets = async () => {
     setIsLoading(true);
+    setError(null);
     try {
-      // Use IPC to get secrets (secure)
       const serverSecrets = await window.electronAPI?.getSecrets(
-        serverId,
+        GLOBAL_SERVER_ID,
         scope,
         scope === 'workspace' ? workspaceId : undefined
       );
@@ -84,8 +74,9 @@ export function SecretsView({ workspaceId }: SecretsViewProps) {
         setSecrets([]);
       }
       setHasChanges(false);
-    } catch (error) {
-      console.error('Failed to load secrets:', error);
+    } catch (err) {
+      console.error('Failed to load secrets:', err);
+      setError('Failed to load secrets');
       setSecrets([]);
     }
     setIsLoading(false);
@@ -103,13 +94,12 @@ export function SecretsView({ workspaceId }: SecretsViewProps) {
       // Convert to uppercase automatically
       const upperValue = newValue.toUpperCase();
 
-      // Ensure SECRET_ prefix is present
-      const finalKey = upperValue.startsWith(SECRET_PREFIX)
-        ? upperValue
-        : SECRET_PREFIX + upperValue;
+      // Remove SECRET_ prefix if user accidentally typed it
+      const cleanKey = upperValue.startsWith(SECRET_PREFIX)
+        ? upperValue.slice(SECRET_PREFIX.length)
+        : upperValue;
 
-      // Validate key format (without prefix)
-      const cleanKey = finalKey.slice(SECRET_PREFIX.length);
+      // Validate key format
       const validationError = validateSecretKey(cleanKey);
       if (validationError) {
         setKeyErrors({ ...keyErrors, [index]: validationError });
@@ -119,7 +109,7 @@ export function SecretsView({ workspaceId }: SecretsViewProps) {
         setKeyErrors(newErrors);
       }
 
-      updated[index] = { ...updated[index], key: finalKey, isDirty: true };
+      updated[index] = { ...updated[index], key: SECRET_PREFIX + cleanKey, isDirty: true };
     } else {
       updated[index] = { ...updated[index], [field]: newValue, isDirty: true };
     }
@@ -128,18 +118,25 @@ export function SecretsView({ workspaceId }: SecretsViewProps) {
     setHasChanges(true);
   };
 
+  // Get display key (without SECRET_ prefix) for input field
+  const getDisplayKey = (key: string): string => {
+    return key.startsWith(SECRET_PREFIX) ? key.slice(SECRET_PREFIX.length) : key;
+  };
+
   const deleteSecret = async (index: number) => {
     const secret = secrets[index];
-    if (secret.key && selectedServerId && !secret.isNew) {
+    if (secret.key && !secret.isNew) {
       try {
         await window.electronAPI?.deleteSecret(
-          selectedServerId,
+          GLOBAL_SERVER_ID,
           secret.key,
           scope,
           scope === 'workspace' ? workspaceId : undefined
         );
-      } catch (error) {
-        console.error('Failed to delete secret:', error);
+      } catch (err) {
+        console.error('Failed to delete secret:', err);
+        setError('Failed to delete secret');
+        return;
       }
     }
     setSecrets(secrets.filter((_, i) => i !== index));
@@ -147,36 +144,33 @@ export function SecretsView({ workspaceId }: SecretsViewProps) {
   };
 
   const saveSecrets = async () => {
-    if (!selectedServerId) return;
-
     // Validate all keys before saving
     const validationErrors: Record<number, string> = {};
     secrets.forEach((secret, index) => {
       if (secret.key) {
-        const cleanKey = secret.key.startsWith(SECRET_PREFIX)
-          ? secret.key.slice(SECRET_PREFIX.length)
-          : secret.key;
-        const error = validateSecretKey(cleanKey);
-        if (error) {
-          validationErrors[index] = error;
+        const displayKey = getDisplayKey(secret.key);
+        const err = validateSecretKey(displayKey);
+        if (err) {
+          validationErrors[index] = err;
         }
       }
     });
 
     if (Object.keys(validationErrors).length > 0) {
       setKeyErrors(validationErrors);
+      setError('Please fix validation errors before saving');
       return;
     }
 
-    // Set loading and clear changes immediately to prevent button flickering
-    setIsLoading(true);
+    setIsSaving(true);
+    setError(null);
     setHasChanges(false);
 
     try {
       for (const secret of secrets) {
         if ((secret.isNew || secret.isDirty) && secret.key && secret.value) {
           await window.electronAPI?.setSecret(
-            selectedServerId,
+            GLOBAL_SERVER_ID,
             secret.key,
             secret.value,
             scope,
@@ -184,15 +178,14 @@ export function SecretsView({ workspaceId }: SecretsViewProps) {
           );
         }
       }
-      // Reload to get clean state (this will also set hasChanges to false)
-      await loadSecrets(selectedServerId);
+      await loadSecrets();
       setKeyErrors({});
-    } catch (error) {
-      console.error('Failed to save secrets:', error);
-      // Restore hasChanges if save failed
+    } catch (err) {
+      console.error('Failed to save secrets:', err);
+      setError('Failed to save secrets');
       setHasChanges(true);
     } finally {
-      setIsLoading(false);
+      setIsSaving(false);
     }
   };
 
@@ -201,92 +194,88 @@ export function SecretsView({ workspaceId }: SecretsViewProps) {
   };
 
   return (
-    <div className="space-y-6 max-w-3xl">
-      {/* Header with scope indicator */}
-      <div className="flex items-center gap-3">
-        <h2 className="text-lg font-semibold">Secrets</h2>
-        <span className={`px-2 py-0.5 text-xs font-medium rounded ${scopeInfo.bg} ${scopeInfo.text}`}>
-          {scopeInfo.label}
-        </span>
+    <div className="flex flex-col h-full">
+      {/* Header - full width */}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <div className="flex items-center gap-3">
+          <h3 className="text-sm font-medium text-gray-400">Global Secrets</h3>
+          <span
+            className={`px-2 py-0.5 text-xs font-medium rounded ${scopeInfo.bg} ${scopeInfo.text}`}
+          >
+            {scopeInfo.label}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={saveSecrets}
+            disabled={isSaving || !hasChanges}
+            className="btn btn-primary text-sm"
+          >
+            <Save className="w-4 h-4 sm:mr-1" />
+            <span className="hidden sm:inline">Save</span>
+          </button>
+          <button onClick={addSecret} className="btn btn-secondary text-sm" disabled={isSaving}>
+            <Plus className="w-4 h-4 sm:mr-1" />
+            <span className="hidden sm:inline">Add Secret</span>
+          </button>
+        </div>
       </div>
 
-      {/* Server selector */}
-      <div>
-        <label className="block text-sm font-medium text-gray-400 mb-2">
-          Select Server
-        </label>
-        <select
-          value={selectedServerId || ''}
-          onChange={(e) => setSelectedServerId(e.target.value || null)}
-          className="select"
-        >
-          <option value="">Choose a server...</option>
-          {servers.map((server) => (
-            <option key={server.id} value={server.id}>
-              {server.displayName}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* Secrets list */}
-      {selectedServerId && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-medium text-gray-400">
-              Secrets for {servers.find((s) => s.id === selectedServerId)?.displayName}
-            </h3>
-            <div className="flex items-center gap-2">
-
-              <button
-                onClick={saveSecrets}
-                disabled={isLoading || !hasChanges}
-                className="btn btn-primary text-sm"
-              >
-                <Save className="w-4 h-4 mr-1" />
-                Save
-              </button>
-              <button
-                onClick={addSecret}
-                className="btn btn-secondary text-sm"
-                disabled={isLoading}
-              >
-                <Plus className="w-4 h-4 mr-1" />
-                Add Secret
-              </button>
+      {/* Scrollable content */}
+      <div className="flex-1 overflow-y-auto custom-scrollbar">
+        <div className="max-w-3xl mx-auto space-y-6">
+          {/* Error message */}
+          {error && (
+            <div className="card p-4 bg-red-950/30 border-red-900">
+              <div className="flex items-center gap-2 text-red-400">
+                <AlertCircle className="w-5 h-5" />
+                <span>{error}</span>
+              </div>
             </div>
-          </div>
+          )}
 
+          {/* Secrets list */}
           {isLoading ? (
-            <div className="text-center py-8 text-gray-500">Loading...</div>
+            <div className="text-center py-12 text-gray-500">Loading secrets...</div>
           ) : secrets.length === 0 ? (
-            <div className="text-center py-8">
-              <Key className="w-12 h-12 text-gray-600 mx-auto mb-3" />
-              <p className="text-gray-500 mb-4">No secrets configured</p>
-              <button onClick={addSecret} className="btn btn-secondary text-sm">
-                <Plus className="w-4 h-4 mr-1" />
-                Add Your First Secret
-              </button>
+            <div className="flex items-center justify-center min-h-[260px]">
+              <div className="text-center max-w-md">
+                <h3 className="text-xl font-semibold text-white mb-2">No Secrets Configured</h3>
+                <p className="text-gray-400 mb-6 leading-relaxed">
+                  Add secrets to securely store API keys, tokens, and other sensitive information
+                  that will be available to all MCP servers.
+                </p>
+                <p className="text-sm text-gray-500 mb-4">
+                  Use the "Add Secret" button above to get started.
+                </p>
+              </div>
             </div>
           ) : (
             <div className="space-y-3">
               {secrets.map((secret, index) => (
                 <div key={index} className="card p-4">
-                  <div className="flex items-center gap-4">
-                    {/* Key input */}
-                    <div className="flex-1">
+                  {/* Responsive: stack on mobile, row on larger screens */}
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                    {/* Key input with SECRET_ prefix */}
+                    <div className="flex-1 min-w-0">
                       <label className="block text-xs text-gray-500 mb-1">Key</label>
                       <div className="flex flex-col">
-                        <input
-                          type="text"
-                          value={secret.key}
-                          onChange={(e) => updateSecret(index, 'key', e.target.value)}
-                          placeholder="SECRET_API_KEY"
-                          className={`input font-mono text-sm uppercase ${keyErrors[index] ? 'border-red-500' : ''
+                        <div className="flex">
+                          <span className="inline-flex items-center px-2 sm:px-3 text-xs sm:text-sm font-mono text-gray-400 bg-bg-tertiary border border-r-0 border-border-default rounded-l-md select-none whitespace-nowrap">
+                            SECRET_
+                          </span>
+                          <input
+                            type="text"
+                            value={getDisplayKey(secret.key)}
+                            onChange={(e) => updateSecret(index, 'key', e.target.value)}
+                            placeholder="API_KEY"
+                            className={`input font-mono text-sm rounded-l-none flex-1 min-w-0 uppercase ${
+                              keyErrors[index] ? 'border-red-500' : ''
                             }`}
-                          disabled={!secret.isNew}
-                          style={{ textTransform: 'uppercase' }}
-                        />
+                            disabled={!secret.isNew}
+                            style={{ textTransform: 'uppercase' }}
+                          />
+                        </div>
                         {keyErrors[index] && (
                           <p className="text-xs text-red-400 mt-1">{keyErrors[index]}</p>
                         )}
@@ -294,7 +283,7 @@ export function SecretsView({ workspaceId }: SecretsViewProps) {
                     </div>
 
                     {/* Value input */}
-                    <div className="flex-1">
+                    <div className="flex-1 min-w-0">
                       <label className="block text-xs text-gray-500 mb-1">Value</label>
                       <div className="relative">
                         <input
@@ -302,7 +291,7 @@ export function SecretsView({ workspaceId }: SecretsViewProps) {
                           value={secret.value}
                           onChange={(e) => updateSecret(index, 'value', e.target.value)}
                           placeholder="Enter secret value"
-                          className="input font-mono text-sm pr-10"
+                          className="input font-mono text-sm pr-10 w-full"
                         />
                         <button
                           type="button"
@@ -318,8 +307,8 @@ export function SecretsView({ workspaceId }: SecretsViewProps) {
                       </div>
                     </div>
 
-                    {/* Status indicators */}
-                    <div className="flex items-center gap-2 mt-5">
+                    {/* Status indicators and delete */}
+                    <div className="flex items-center gap-2 sm:mt-5 justify-end sm:justify-start">
                       {secret.isNew && (
                         <span className="px-2 py-0.5 text-xs font-medium rounded bg-yellow-600 text-yellow-200">
                           New
@@ -352,67 +341,58 @@ export function SecretsView({ workspaceId }: SecretsViewProps) {
               <Info className="w-5 h-5 text-gray-500 flex-shrink-0 mt-0.5" />
               <div className="space-y-2">
                 <p className="text-sm text-gray-400">
-                  <strong>Secret Priority:</strong> When the server starts, secrets are merged in this order:
+                  <strong>Secret Priority:</strong> When a server starts, secrets are merged in this
+                  order:
                 </p>
                 <ol className="text-sm text-gray-500 list-decimal list-inside space-y-1">
                   <li>
-                    <span className={`px-1.5 py-0.5 text-xs font-medium rounded ${scopeColors.global.bg} ${scopeColors.global.text}`}>
+                    <span className="px-1.5 py-0.5 text-xs font-medium rounded bg-gray-600 text-gray-200">
                       Global
-                    </span>
-                    {' '}secrets (lowest priority)
-                  </li>
-                  <li>
-                    <span className={`px-1.5 py-0.5 text-xs font-medium rounded ${scopeColors.workspace.bg} ${scopeColors.workspace.text}`}>
-                      Workspace
-                    </span>
-                    {' '}secrets override global
+                    </span>{' '}
+                    secrets (lowest priority)
                   </li>
                   <li>
                     <span className="px-1.5 py-0.5 text-xs font-medium rounded bg-emerald-600 text-emerald-200">
                       Server
-                    </span>
-                    {' '}secrets override all (highest priority)
+                    </span>{' '}
+                    secrets override global (highest priority)
                   </li>
                 </ol>
                 <p className="text-sm text-gray-500 mt-2">
-                  {scope === 'global'
-                    ? 'You are editing Global secrets that apply to all workspaces.'
-                    : 'You are editing Workspace secrets that override Global secrets for this workspace.'}
+                  Server-specific secrets (set in server settings) will override global secrets with
+                  the same key.
                 </p>
               </div>
             </div>
           </div>
 
-          {/* Info about auth token */}
+          {/* SECRET_ prefix info */}
           <div className="card p-4 bg-bg-tertiary border-dashed">
             <div className="flex items-start gap-3">
               <Key className="w-5 h-5 text-gray-500 flex-shrink-0 mt-0.5" />
-              <div>
+              <div className="space-y-2">
                 <p className="text-sm text-gray-400">
-                  <strong>SECRET_MCP_AUTH_TOKEN</strong> is a special secret that gets passed
-                  to the server for authentication. Set it here to authenticate with servers
-                  that require it.
+                  <strong>SECRET_ Prefix:</strong> All secrets are automatically prefixed with{' '}
+                  <code className="px-1.5 py-0.5 bg-bg-secondary rounded text-xs font-mono">
+                    SECRET_
+                  </code>{' '}
+                  to prevent conflicts when merging environment variables.
+                </p>
+                <p className="text-sm text-gray-500">
+                  Example: Enter{' '}
+                  <code className="px-1 py-0.5 bg-bg-secondary rounded text-xs font-mono">
+                    OPENAI_API_KEY
+                  </code>{' '}
+                  → stored as{' '}
+                  <code className="px-1 py-0.5 bg-bg-secondary rounded text-xs font-mono">
+                    SECRET_OPENAI_API_KEY
+                  </code>
                 </p>
               </div>
             </div>
           </div>
         </div>
-      )}
-
-      {/* No server selected */}
-      {!selectedServerId && servers.length > 0 && (
-        <div className="text-center py-12">
-          <Key className="w-12 h-12 text-gray-600 mx-auto mb-3" />
-          <p className="text-gray-500">Select a server to manage its secrets</p>
-        </div>
-      )}
-
-      {/* No servers */}
-      {servers.length === 0 && (
-        <div className="text-center py-12">
-          <p className="text-gray-500">Add a server first to manage secrets</p>
-        </div>
-      )}
+      </div>
     </div>
   );
 }

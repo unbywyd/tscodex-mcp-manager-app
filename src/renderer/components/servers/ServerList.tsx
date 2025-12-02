@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Server } from 'lucide-react';
+import { Plus, Server, RotateCcw, Loader2 } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { ServerCard } from './ServerCard';
 import { AddServerFlow } from './AddServerFlow';
@@ -10,8 +10,22 @@ interface ServerListProps {
 }
 
 export function ServerList({ workspaceId, onOpenServerDetails }: ServerListProps) {
-  const { servers, isLoading, fetchServers } = useAppStore();
+  const { servers, isLoading, fetchServers, restartAllServers } = useAppStore();
   const [showAddServer, setShowAddServer] = useState(false);
+  const [isRestarting, setIsRestarting] = useState(false);
+
+  const runningServersCount = servers.filter((s) => s.status === 'running').length;
+
+  const handleRestartAll = async () => {
+    setIsRestarting(true);
+    try {
+      await restartAllServers();
+    } catch (err) {
+      console.error('Failed to restart all servers:', err);
+    } finally {
+      setIsRestarting(false);
+    }
+  };
 
   const handleServerAdded = () => {
     fetchServers();
@@ -68,6 +82,32 @@ export function ServerList({ workspaceId, onOpenServerDetails }: ServerListProps
   return (
     <>
       <div className="space-y-4">
+        {/* Header with Restart All button */}
+        <div className="flex items-center justify-end">
+          <button
+            onClick={handleRestartAll}
+            disabled={isRestarting || runningServersCount === 0}
+            className="btn btn-secondary text-sm"
+            title={
+              runningServersCount === 0
+                ? 'No running servers'
+                : 'Restart all running servers'
+            }
+          >
+            {isRestarting ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                Restarting...
+              </>
+            ) : (
+              <>
+                <RotateCcw className="w-4 h-4 mr-1" />
+                Restart All ({runningServersCount})
+              </>
+            )}
+          </button>
+        </div>
+
         {/* Server cards */}
         {servers.map((server) => (
           <ServerCard

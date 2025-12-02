@@ -136,13 +136,14 @@ export function AuthorizationCard({
       };
     }
 
+    // No authInfo means server doesn't support authorization at all
     if (!authInfo) {
       return {
-        status: 'unknown' as const,
+        status: 'not-supported' as const,
         icon: ShieldAlert,
         color: 'text-gray-400',
         bgColor: 'bg-gray-600',
-        message: 'Authorization information not available',
+        message: 'This server does not support authorization',
       };
     }
 
@@ -156,6 +157,7 @@ export function AuthorizationCard({
       };
     }
 
+    // Authorization is required but not authorized
     if (authInfo.required) {
       return {
         status: 'not-authorized' as const,
@@ -168,12 +170,15 @@ export function AuthorizationCard({
       };
     }
 
+    // Authorization is optional (authInfo.required === false)
     return {
-      status: 'not-required' as const,
-      icon: ShieldCheck,
-      color: 'text-gray-400',
-      bgColor: 'bg-gray-600',
-      message: 'This server does not require authorization',
+      status: 'optional' as const,
+      icon: ShieldAlert,
+      color: 'text-blue-400',
+      bgColor: 'bg-blue-600',
+      message: existingToken
+        ? 'Token is set but not validated yet'
+        : 'Authorization is optional - add a token for personalized features',
     };
   };
 
@@ -196,8 +201,8 @@ export function AuthorizationCard({
             {authState.status === 'authorized' && 'Authorized'}
             {authState.status === 'not-authorized' && 'Not Authorized'}
             {authState.status === 'server-stopped' && 'Server Not Running'}
-            {authState.status === 'unknown' && 'Unknown'}
-            {authState.status === 'not-required' && 'No Authorization Required'}
+            {authState.status === 'not-supported' && 'No Authorization'}
+            {authState.status === 'optional' && 'Authorization Optional'}
           </p>
           <p className="text-sm text-gray-400 mt-1">{authState.message}</p>
         </div>

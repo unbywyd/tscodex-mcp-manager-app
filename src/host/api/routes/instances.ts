@@ -92,6 +92,76 @@ export function createInstanceRoutes(router: Router, ctx: RouteContext): void {
     }
   });
 
+  // Restart all running server instances
+  router.post('/api/instances/restart-all', async (_req: Request, res: Response) => {
+    try {
+      const instances = ctx.processManager.getAllInstances();
+      const runningInstances = instances.filter((i) => i.status === 'running');
+
+      const results: { serverId: string; workspaceId: string; success: boolean; error?: string }[] =
+        [];
+
+      for (const instance of runningInstances) {
+        try {
+          // Get server template
+          const server = await ctx.serverStore.get(instance.serverId);
+          if (!server) {
+            results.push({
+              serverId: instance.serverId,
+              workspaceId: instance.workspaceId,
+              success: false,
+              error: 'Server not found',
+            });
+            continue;
+          }
+
+          // Get workspace config
+          const workspace = ctx.workspaceStore.get(instance.workspaceId);
+          const wsConfig = ctx.workspaceStore.getServerConfig(
+            instance.workspaceId,
+            instance.serverId
+          );
+
+          // Restart instance
+          await ctx.processManager.restart(
+            instance.serverId,
+            instance.workspaceId,
+            workspace?.projectRoot,
+            {
+              ...server.defaultConfig,
+              ...wsConfig?.configOverride,
+            }
+          );
+
+          results.push({
+            serverId: instance.serverId,
+            workspaceId: instance.workspaceId,
+            success: true,
+          });
+        } catch (error) {
+          results.push({
+            serverId: instance.serverId,
+            workspaceId: instance.workspaceId,
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error',
+          });
+        }
+      }
+
+      res.json({
+        success: true,
+        restarted: results.filter((r) => r.success).length,
+        failed: results.filter((r) => !r.success).length,
+        results,
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  });
+
   // Restart server instance
   router.post('/api/instances/restart', async (req: Request, res: Response) => {
     try {

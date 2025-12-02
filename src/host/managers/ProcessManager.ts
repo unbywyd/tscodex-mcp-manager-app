@@ -96,6 +96,9 @@ export class ProcessManager {
         server.localPath
       );
 
+      // Get user profile for MCP_AUTH_TOKEN
+      const userProfile = await this.secretStore.getProfile();
+
       // Build environment variables
       const env = await this.buildEnvironment(
         serverId,
@@ -103,8 +106,16 @@ export class ProcessManager {
         port,
         projectRoot,
         server.defaultConfig,
-        configOverride
+        configOverride,
+        userProfile
       );
+
+      console.log(`[ProcessManager] Starting server ${serverId}`);
+      console.log(`[ProcessManager] Command: ${command} ${args.join(' ')}`);
+      console.log(`[ProcessManager] Port: ${port}`);
+      console.log(`[ProcessManager] CWD: ${projectRoot || process.cwd()}`);
+      console.log(`[ProcessManager] Install type: ${server.installType}`);
+      console.log(`[ProcessManager] Package: ${server.packageName}@${server.packageVersion || 'latest'}`);
 
       // Spawn process
       const proc = spawn(command, args, {
@@ -115,6 +126,7 @@ export class ProcessManager {
       });
 
       instance.pid = proc.pid;
+      console.log(`[ProcessManager] Process spawned with PID: ${proc.pid}`);
 
       // Store process info
       this.processes.set(key, { process: proc, instance, stopping: false });
@@ -145,10 +157,26 @@ export class ProcessManager {
       instance.status = 'error';
       instance.lastError = error instanceof Error ? error.message : String(error);
 
+      // Kill the process if it's still running (e.g., health check failed but process is alive)
+      const info = this.processes.get(key);
+      if (info?.process && !info.process.killed) {
+        info.stopping = true; // Prevent auto-restart
+        try {
+          if (process.platform === 'win32') {
+            if (info.process.pid) {
+              await this.killProcessTree(info.process.pid);
+            }
+          } else {
+            info.process.kill('SIGKILL');
+          }
+        } catch (killError) {
+          console.error(`Failed to kill process on error cleanup:`, killError);
+        }
+      }
+
       this.portManager.release(key);
       // Keep the process info in map to track restart attempts
       // Only delete if we're not going to auto-restart
-      const info = this.processes.get(key);
       if (info && instance.restartAttempts >= MAX_RESTART_ATTEMPTS) {
         this.processes.delete(key);
       }
@@ -225,9 +253,35 @@ export class ProcessManager {
         if (error) {
           console.error(`taskkill error for PID ${pid}:`, error.message);
         }
-        resolve();
+        // Wait a bit for OS to fully release resources
+        setTimeout(resolve, 500);
       });
     });
+  }
+
+  /**
+   * Wait for port to become available
+   */
+  private async waitForPortRelease(port: number, maxWaitMs: number = 5000): Promise<boolean> {
+    const startTime = Date.now();
+    const checkInterval = 200;
+
+    while (Date.now() - startTime < maxWaitMs) {
+      try {
+        // Try to connect to the port - if it fails, port is free
+        await fetch(`http://127.0.0.1:${port}/health`, {
+          signal: AbortSignal.timeout(100),
+        });
+        // Port still in use
+        await delay(checkInterval);
+      } catch {
+        // Connection failed = port is free
+        return true;
+      }
+    }
+
+    console.warn(`Port ${port} still in use after ${maxWaitMs}ms`);
+    return false;
   }
 
   /**
@@ -239,8 +293,16 @@ export class ProcessManager {
     projectRoot?: string,
     configOverride?: Record<string, unknown>
   ): Promise<ServerInstance> {
+    const key = this.getKey(serverId, workspaceId);
+    const oldPort = this.portManager.getPort(key);
+
     await this.stop(serverId, workspaceId);
-    await delay(500); // Brief pause before restart
+
+    // Wait for port to be released before restarting
+    if (oldPort) {
+      await this.waitForPortRelease(oldPort);
+    }
+
     return this.start(serverId, workspaceId, projectRoot, configOverride);
   }
 
@@ -289,11 +351,13 @@ export class ProcessManager {
     port: number,
     projectRoot?: string,
     defaultConfig?: Record<string, unknown>,
-    configOverride?: Record<string, unknown>
+    configOverride?: Record<string, unknown>,
+    userProfile?: { email: string; fullName: string } | null
   ): Promise<NodeJS.ProcessEnv> {
-    // Get secrets
-    const globalSecrets = await this.secretStore.getSecrets(serverId, 'global');
-    const workspaceSecrets = await this.secretStore.getSecrets(serverId, 'workspace', workspaceId);
+    // Get secrets with priority: app global < server global < server workspace
+    const appGlobalSecrets = await this.secretStore.getSecrets('__app__', 'global');
+    const serverGlobalSecrets = await this.secretStore.getSecrets(serverId, 'global');
+    const serverWorkspaceSecrets = await this.secretStore.getSecrets(serverId, 'workspace', workspaceId);
 
     // Merge config
     const config = {
@@ -301,7 +365,15 @@ export class ProcessManager {
       ...configOverride,
     };
 
-    return {
+    // Merge secrets (priority: app global < server global < server workspace)
+    const allSecrets = {
+      ...appGlobalSecrets,
+      ...serverGlobalSecrets,
+      ...serverWorkspaceSecrets,
+    };
+
+    // Build environment variables
+    const env: NodeJS.ProcessEnv = {
       ...process.env,
       MCP_PORT: String(port),
       MCP_HOST: '127.0.0.1',
@@ -311,10 +383,30 @@ export class ProcessManager {
       MCP_SERVER_ID: serverId,
       MCP_CONFIG: JSON.stringify(config),
       NODE_ENV: 'production',
-      // Merge secrets (workspace overrides global)
-      ...globalSecrets,
-      ...workspaceSecrets,
+      // Pass all secrets as-is (except SECRET_MCP_AUTH_TOKEN which is handled specially)
+      ...allSecrets,
     };
+
+    // Build MCP_AUTH_TOKEN as JSON object with user profile and optional token
+    // Format: {"email": "...", "fullName": "...", "token": "..."}
+    if (userProfile?.email) {
+      const authPayload: Record<string, string> = {
+        email: userProfile.email,
+        fullName: userProfile.fullName || '',
+      };
+
+      // Add token from secrets if available
+      if (allSecrets['SECRET_MCP_AUTH_TOKEN']) {
+        authPayload.token = String(allSecrets['SECRET_MCP_AUTH_TOKEN']);
+      }
+
+      env.MCP_AUTH_TOKEN = JSON.stringify(authPayload);
+      console.log(`[ProcessManager] MCP_AUTH_TOKEN set with profile (email: ${userProfile.email})`);
+    } else {
+      console.log(`[ProcessManager] No user profile, server will run without auth`);
+    }
+
+    return env;
   }
 
   /**
@@ -329,6 +421,7 @@ export class ProcessManager {
     proc.stdout?.on('data', (data: Buffer) => {
       const message = data.toString().trim();
       if (message) {
+        console.log(`[ProcessManager] [${instance.serverId}] stdout: ${message}`);
         this.eventBus.emitServerEvent({
           type: 'server-log',
           serverId: instance.serverId,
@@ -342,6 +435,7 @@ export class ProcessManager {
     proc.stderr?.on('data', (data: Buffer) => {
       const message = data.toString().trim();
       if (message) {
+        console.error(`[ProcessManager] [${instance.serverId}] stderr: ${message}`);
         this.eventBus.emitServerEvent({
           type: 'server-log',
           serverId: instance.serverId,
@@ -366,9 +460,10 @@ export class ProcessManager {
       }
     });
 
-    // Process error
+    // Process error (spawn error, e.g., command not found)
     proc.on('error', (error) => {
-      console.error(`Process ${key} error:`, error);
+      console.error(`[ProcessManager] [${instance.serverId}] spawn error:`, error.message);
+      console.error(`[ProcessManager] [${instance.serverId}] error details:`, error);
 
       const info = this.processes.get(key);
       if (info) {
