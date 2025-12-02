@@ -91,7 +91,7 @@ export interface ServerInfo extends ServerTemplate {
 // Workspace Types
 // ============================================================================
 
-export type WorkspaceSource = 'manual' | 'vscode' | 'cursor';
+export type WorkspaceSource = 'manual' | 'api';
 
 export interface WorkspaceConfig {
   id: string;

@@ -37,7 +37,7 @@ export function createSessionRoutes(router: Router, ctx: RouteContext): void {
         workspace = await ctx.workspaceStore.create({
           label,
           projectRoot,
-          source: clientType,
+          source: 'api', // Created via API (IDE extension, etc.)
           sourceInstanceId: clientInstanceId,
         });
 

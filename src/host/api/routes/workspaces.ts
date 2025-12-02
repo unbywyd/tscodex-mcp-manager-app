@@ -4,6 +4,7 @@
 
 import { Router, Request, Response } from '../../http/router';
 import type { RouteContext } from './index';
+import type { WorkspaceSource } from '../../../shared/types';
 
 export function createWorkspaceRoutes(router: Router, ctx: RouteContext): void {
   // List all workspaces
@@ -76,7 +77,7 @@ export function createWorkspaceRoutes(router: Router, ctx: RouteContext): void {
       const body = req.body as {
         label?: string;
         projectRoot?: string;
-        source?: string;
+        source?: WorkspaceSource;
         sourceInstanceId?: string;
       };
       const { label, projectRoot, source, sourceInstanceId } = body;
