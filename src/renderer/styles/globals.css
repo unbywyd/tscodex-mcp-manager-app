@@ -1,0 +1,238 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Base styles */
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Ubuntu, sans-serif;
+  overflow: hidden;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #3a3a3a;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #4a4a4a;
+}
+
+/* Custom scrollbar class for elements */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #3a3a3a;
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #4a4a4a;
+}
+
+/* Hide scrollbar when not scrolling (Firefox) */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #3a3a3a transparent;
+}
+
+/* Titlebar drag region */
+.titlebar-drag {
+  -webkit-app-region: drag;
+}
+
+.titlebar-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Status indicator animation */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.status-starting {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+/* Focus styles - subtle ring instead of ugly outline */
+:focus-visible {
+  outline: none;
+}
+
+*:focus {
+  outline: none;
+}
+
+/* Custom focus ring for interactive elements */
+.focus-ring:focus-visible,
+button:focus-visible,
+a:focus-visible,
+select:focus-visible,
+[role="button"]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2);
+}
+
+/* Button base */
+.btn {
+  @apply px-4 py-2 rounded-md font-medium transition-all duration-150;
+  @apply flex items-center justify-center;
+  @apply focus:outline-none;
+}
+
+.btn:focus-visible {
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.3);
+}
+
+.btn-primary {
+  @apply bg-white text-black hover:bg-gray-200;
+}
+
+.btn-primary:disabled {
+  @apply bg-gray-600 text-gray-400 cursor-not-allowed opacity-60;
+}
+
+.btn-primary:disabled:hover {
+  @apply bg-gray-600;
+}
+
+.btn-secondary {
+  @apply bg-transparent text-white border border-border-default hover:border-border-hover hover:bg-bg-hover;
+}
+
+.btn-secondary:disabled {
+  @apply opacity-50 cursor-not-allowed text-gray-500 border-gray-700;
+}
+
+.btn-secondary:disabled:hover {
+  @apply bg-transparent border-gray-700;
+}
+
+.btn-danger {
+  @apply bg-red-600 text-white hover:bg-red-700;
+}
+
+.btn-danger:disabled {
+  @apply bg-gray-600 text-gray-400 cursor-not-allowed opacity-60;
+}
+
+.btn-danger:disabled:hover {
+  @apply bg-gray-600;
+}
+
+.btn-icon {
+  @apply p-2 rounded-md hover:bg-bg-hover transition-colors;
+}
+
+/* Card styles */
+.card {
+  @apply bg-bg-card border border-border-default rounded-lg;
+}
+
+.card-hover {
+  @apply hover:border-border-hover hover:bg-bg-hover transition-colors cursor-pointer;
+}
+
+/* Input styles */
+.input {
+  @apply w-full px-3 py-2 bg-bg-secondary border border-border-default rounded-md;
+  @apply text-white placeholder-gray-500;
+  @apply focus:outline-none focus:border-white;
+}
+
+/* Select styles */
+.select {
+  @apply w-full px-3 py-2 bg-bg-secondary border border-border-default rounded-md;
+  @apply text-white appearance-none cursor-pointer;
+  @apply focus:outline-none focus:border-white;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+  background-position: right 0.5rem center;
+  background-repeat: no-repeat;
+  background-size: 1.5em 1.5em;
+  padding-right: 2.5rem;
+}
+
+/* Custom checkbox styles */
+input[type="checkbox"],
+.form-checkbox {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  min-height: 18px;
+  border: 1.5px solid #4a4a4a;
+  border-radius: 4px;
+  background-color: #2a2a2a;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+}
+
+input[type="checkbox"]:hover,
+.form-checkbox:hover {
+  border-color: #666;
+  background-color: #333;
+}
+
+input[type="checkbox"]:checked,
+.form-checkbox:checked {
+  background-color: white;
+  border-color: white;
+}
+
+input[type="checkbox"]:checked::after,
+.form-checkbox:checked::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 2px;
+  width: 5px;
+  height: 9px;
+  border: solid black;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+input[type="checkbox"]:focus,
+.form-checkbox:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2);
+}
+
+input[type="checkbox"]:focus-visible,
+.form-checkbox:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2);
+}

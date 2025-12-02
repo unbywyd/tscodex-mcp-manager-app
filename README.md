@@ -1,0 +1,161 @@
+# MCP Manager
+
+Standalone desktop application for managing MCP (Model Context Protocol) servers.
+
+## Features
+
+- **Centralized Process Management**: Single application manages all MCP server processes
+- **Workspace Isolation**: Configure servers per project/workspace
+- **Secure Secrets**: OS keychain storage for API keys and tokens
+- **MCP Gateway**: Proxy requests to servers with workspace context
+- **Real-time Updates**: WebSocket events for status changes
+- **Cross-platform**: Windows, macOS, and Linux support
+
+## Architecture
+
+```
+┌─────────────────────────────────────────┐
+│           MCP Manager App               │
+│  ┌───────────────────────────────────┐  │
+│  │         Electron Shell            │  │
+│  │  - System tray                    │  │
+│  │  - Window management              │  │
+│  │  - Auto-start                     │  │
+│  └───────────────────────────────────┘  │
+│                   │                     │
+│  ┌───────────────────────────────────┐  │
+│  │          MCP Host                 │  │
+│  │  - HTTP API (port 4040)           │  │
+│  │  - MCP Gateway proxy              │  │
+│  │  - Process Manager                │  │
+│  │  - WebSocket events               │  │
+│  └───────────────────────────────────┘  │
+│                   │                     │
+│  ┌───────────────────────────────────┐  │
+│  │          React UI                 │  │
+│  │  - Server management              │  │
+│  │  - Workspace configuration        │  │
+│  │  - Secrets management             │  │
+│  └───────────────────────────────────┘  │
+└─────────────────────────────────────────┘
+```
+
+## Development
+
+### Prerequisites
+
+- Node.js 18+
+- npm or pnpm
+
+### Setup
+
+```bash
+# Install dependencies
+npm install
+
+# Start development
+npm run dev
+
+# In another terminal, start Electron
+npm start
+```
+
+### Build
+
+```bash
+# Build for production
+npm run build
+
+# Package for distribution
+npm run dist
+```
+
+## API Endpoints
+
+### Health Check
+```
+GET /api/health
+```
+
+### Authentication
+```
+POST /api/auth/login
+POST /api/auth/logout
+GET  /api/auth/profile
+```
+
+### Servers
+```
+GET    /api/servers
+POST   /api/servers
+PATCH  /api/servers/:id
+DELETE /api/servers/:id
+```
+
+### Workspaces
+```
+GET    /api/workspaces
+POST   /api/workspaces
+PATCH  /api/workspaces/:id
+DELETE /api/workspaces/:id
+```
+
+### Instances
+```
+GET  /api/instances
+POST /api/instances/start
+POST /api/instances/stop
+POST /api/instances/restart
+```
+
+### Sessions (for IDE extensions)
+```
+POST /api/sessions/connect
+POST /api/sessions/ping
+POST /api/sessions/disconnect
+```
+
+### MCP Gateway
+```
+POST /mcp/:serverId/:workspaceId/*
+```
+
+### WebSocket Events
+```
+WS /events
+```
+
+## Supported Package Runners
+
+| Type | Command |
+|------|---------|
+| npx | `npx package@version` |
+| pnpx | `pnpm dlx package@version` |
+| yarn | `yarn dlx package@version` |
+| bunx | `bunx package@version` |
+| local | `node /path/to/file` |
+
+## Configuration Storage
+
+```
+Windows:  %APPDATA%/mcp-manager/
+macOS:    ~/Library/Application Support/mcp-manager/
+Linux:    ~/.config/mcp-manager/
+
+Structure:
+├── config/
+│   ├── servers.json
+│   └── workspaces.json
+└── logs/
+```
+
+## Security
+
+- Secrets stored in OS keychain (keytar)
+- HTTP API only on localhost (127.0.0.1)
+- Secret values never exposed via HTTP API
+- Secure IPC for secret access from UI
+
+## License
+
+MIT
