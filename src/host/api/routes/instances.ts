@@ -8,9 +8,17 @@ import { GLOBAL_WORKSPACE_ID } from '../../../shared/types';
 
 export function createInstanceRoutes(router: Router, ctx: RouteContext): void {
   // List all running instances
-  router.get('/api/instances', async (_req: Request, res: Response) => {
+  // Optional query param: workspaceId - filter instances by workspace
+  router.get('/api/instances', async (req: Request, res: Response) => {
     try {
-      const instances = ctx.processManager.getAllInstances();
+      let instances = ctx.processManager.getAllInstances();
+
+      // Filter by workspaceId if provided
+      const workspaceId = req.query.workspaceId as string | undefined;
+      if (workspaceId) {
+        instances = instances.filter((i) => i.workspaceId === workspaceId);
+      }
+
       res.json({ success: true, instances });
     } catch (error) {
       res.status(500).json({
@@ -21,10 +29,11 @@ export function createInstanceRoutes(router: Router, ctx: RouteContext): void {
   });
 
   // Start server instance
+  // Note: Servers always run in 'global' workspace. The workspaceId param is kept for API consistency.
   router.post('/api/instances/start', async (req: Request, res: Response) => {
     try {
       const body = req.body as { serverId?: string; workspaceId?: string };
-      const { serverId, workspaceId = GLOBAL_WORKSPACE_ID } = body;
+      const { serverId } = body;
 
       if (!serverId) {
         res.status(400).json({
@@ -44,19 +53,12 @@ export function createInstanceRoutes(router: Router, ctx: RouteContext): void {
         return;
       }
 
-      // Get workspace config
-      const workspace = ctx.workspaceStore.get(workspaceId);
-      const wsConfig = ctx.workspaceStore.getServerConfig(workspaceId, serverId);
-
-      // Start instance
+      // Start instance in global workspace
       const instance = await ctx.processManager.start(
         serverId,
-        workspaceId,
-        workspace?.projectRoot,
-        {
-          ...server.defaultConfig,
-          ...wsConfig?.configOverride,
-        }
+        GLOBAL_WORKSPACE_ID,
+        undefined, // No project root for global
+        server.defaultConfig || {}
       );
 
       res.json({ success: true, instance });
@@ -69,10 +71,12 @@ export function createInstanceRoutes(router: Router, ctx: RouteContext): void {
   });
 
   // Stop server instance
+  // Note: Servers always run in 'global' workspace. The workspaceId param is kept for API consistency
+  // but we always stop from global workspace.
   router.post('/api/instances/stop', async (req: Request, res: Response) => {
     try {
       const body = req.body as { serverId?: string; workspaceId?: string };
-      const { serverId, workspaceId = GLOBAL_WORKSPACE_ID } = body;
+      const { serverId } = body;
 
       if (!serverId) {
         res.status(400).json({
@@ -82,7 +86,17 @@ export function createInstanceRoutes(router: Router, ctx: RouteContext): void {
         return;
       }
 
-      await ctx.processManager.stop(serverId, workspaceId);
+      // Servers always run in global workspace
+      const instance = ctx.processManager.getInstance(serverId, GLOBAL_WORKSPACE_ID);
+      if (!instance) {
+        res.status(404).json({
+          success: false,
+          error: `No running instance found for server ${serverId}`,
+        });
+        return;
+      }
+
+      await ctx.processManager.stop(serverId, GLOBAL_WORKSPACE_ID);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({
@@ -163,10 +177,11 @@ export function createInstanceRoutes(router: Router, ctx: RouteContext): void {
   });
 
   // Restart server instance
+  // Note: Servers always run in 'global' workspace.
   router.post('/api/instances/restart', async (req: Request, res: Response) => {
     try {
       const body = req.body as { serverId?: string; workspaceId?: string };
-      const { serverId, workspaceId = GLOBAL_WORKSPACE_ID } = body;
+      const { serverId } = body;
 
       if (!serverId) {
         res.status(400).json({
@@ -186,19 +201,12 @@ export function createInstanceRoutes(router: Router, ctx: RouteContext): void {
         return;
       }
 
-      // Get workspace config
-      const workspace = ctx.workspaceStore.get(workspaceId);
-      const wsConfig = ctx.workspaceStore.getServerConfig(workspaceId, serverId);
-
-      // Restart instance
+      // Restart instance in global workspace
       const instance = await ctx.processManager.restart(
         serverId,
-        workspaceId,
-        workspace?.projectRoot,
-        {
-          ...server.defaultConfig,
-          ...wsConfig?.configOverride,
-        }
+        GLOBAL_WORKSPACE_ID,
+        undefined, // No project root for global
+        server.defaultConfig || {}
       );
 
       res.json({ success: true, instance });

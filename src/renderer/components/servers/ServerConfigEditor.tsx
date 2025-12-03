@@ -114,6 +114,7 @@ export function ServerConfigEditor({
 }: ServerConfigEditorProps) {
   const [config, setConfig] = useState<Record<string, unknown>>(defaultConfig || {});
   const [originalConfig, setOriginalConfig] = useState<Record<string, unknown>>(defaultConfig || {});
+  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -123,11 +124,14 @@ export function ServerConfigEditor({
 
   // Load current config on mount
   useEffect(() => {
+    setIsLoading(true);
     loadConfig();
   }, [serverId, workspaceId]);
 
-  // Check for changes and validate
+  // Check for changes and validate (only after loading is complete)
   useEffect(() => {
+    if (isLoading) return;
+
     const changed = JSON.stringify(config) !== JSON.stringify(originalConfig);
     setHasChanges(changed);
 
@@ -137,7 +141,7 @@ export function ServerConfigEditor({
       const result = validateSchema(config, parsedSchema);
       setValidationErrors(result.errors);
     }
-  }, [config, originalConfig, configSchema]);
+  }, [config, originalConfig, configSchema, isLoading]);
 
   const loadConfig = async () => {
     // Get schema defaults
@@ -155,6 +159,7 @@ export function ServerConfigEditor({
           const mergedConfig = { ...schemaDefaults, ...defaultConfig, ...data.config };
           setConfig(mergedConfig);
           setOriginalConfig(mergedConfig);
+          setIsLoading(false);
           return;
         }
       }
@@ -166,6 +171,7 @@ export function ServerConfigEditor({
     const mergedConfig = { ...schemaDefaults, ...defaultConfig };
     setConfig(mergedConfig);
     setOriginalConfig(mergedConfig);
+    setIsLoading(false);
   };
 
   const handleSave = async () => {
@@ -714,6 +720,18 @@ export function ServerConfigEditor({
   };
 
   const parsedSchema = parseSchema(configSchema);
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="w-8 h-8 animate-spin text-gray-500" />
+          <p className="text-sm text-gray-500">Loading configuration...</p>
+        </div>
+      </div>
+    );
+  }
 
   // No schema available
   if (!parsedSchema || !parsedSchema.properties) {

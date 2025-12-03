@@ -5,19 +5,35 @@
 import { Router, Request, Response } from '../../http/router';
 import type { RouteContext } from './index';
 import type { InstallType } from '../../../shared/types';
+import { DEFAULT_HOST_PORT } from '../../../shared/types';
+import { checkForUpdate, clearPackageCache } from '../../managers/PackageVersionChecker';
+import { readLocalPackageJson, fetchNpmPackageMetadata } from '../../managers/PackageMetadataReader';
 
 export function createServerRoutes(router: Router, ctx: RouteContext): void {
   // List all servers
-  router.get('/api/servers', async (_req: Request, res: Response) => {
+  // Optional query param: workspaceId - filter instances by workspace
+  router.get('/api/servers', async (req: Request, res: Response) => {
     try {
+      const workspaceId = req.query.workspaceId as string | undefined;
       const servers = ctx.serverStore.getAll();
 
       // Enrich with instance status, fallback to cached metadata when stopped
+      // Note: Servers always run in 'global' workspace, so we get global status
       const enriched = servers.map((server) => {
         const instances = ctx.processManager.getAllInstances()
           .filter((i) => i.serverId === server.id);
 
+        // Get global running instance (servers only run globally)
         const runningInstance = instances.find((i) => i.status === 'running');
+
+        // Debug: log packageInfo for each server
+        if (server.packageInfo) {
+          console.log(`[ServerRoutes] GET /api/servers - ${server.displayName} has packageInfo:`, {
+            hasReadme: !!server.packageInfo.readme,
+            readmeLength: server.packageInfo.readme?.length,
+            hasAuthor: !!server.packageInfo.author,
+          });
+        }
 
         return {
           ...server,
@@ -30,7 +46,25 @@ export function createServerRoutes(router: Router, ctx: RouteContext): void {
         };
       });
 
-      res.json({ success: true, servers: enriched });
+      // Build mcpEndpoints for the workspace (if provided)
+      // Only servers explicitly enabled for workspace get a proxy URL
+      let mcpEndpoints: Record<string, string> | undefined;
+      if (workspaceId) {
+        mcpEndpoints = {};
+        for (const server of servers) {
+          // Check if server is explicitly enabled for this workspace
+          const wsConfig = ctx.workspaceStore.getServerConfig(workspaceId, server.id);
+          // Server must be explicitly enabled (wsConfig.enabled === true)
+          // If no config exists or enabled is false/undefined, server is disabled
+          if (!wsConfig || wsConfig.enabled !== true) {
+            continue;
+          }
+          // Build proxy URL
+          mcpEndpoints[server.id] = `http://127.0.0.1:${DEFAULT_HOST_PORT}/mcp/${server.id}/${workspaceId}`;
+        }
+      }
+
+      res.json({ success: true, servers: enriched, mcpEndpoints });
     } catch (error) {
       res.status(500).json({
         success: false,
@@ -105,11 +139,23 @@ export function createServerRoutes(router: Router, ctx: RouteContext): void {
         return;
       }
 
+      // Fetch package metadata
+      let metadata = null;
+      if (installType === 'local' && localPath) {
+        metadata = await readLocalPackageJson(localPath);
+      } else if (packageName) {
+        metadata = await fetchNpmPackageMetadata(packageName);
+      }
+
       const server = await ctx.serverStore.create({
         installType,
         packageName,
         packageVersion,
         localPath,
+        // Use metadata if available
+        displayName: metadata?.name,
+        description: metadata?.description,
+        packageInfo: metadata?.packageInfo,
       });
 
       res.status(201).json({ success: true, server });
@@ -211,10 +257,185 @@ export function createServerRoutes(router: Router, ctx: RouteContext): void {
         return;
       }
 
-      // TODO: Run --meta command and update server metadata
-      // For now, just return the current server
+      console.log(`[ServerRoutes] Refreshing metadata for server: ${server.id}`);
+      console.log(`[ServerRoutes] Install type: ${server.installType}`);
+      console.log(`[ServerRoutes] Local path: ${server.localPath}`);
+      console.log(`[ServerRoutes] Package name: ${server.packageName}`);
 
-      res.json({ success: true, server });
+      // Fetch package metadata based on install type
+      let metadata = null;
+      if (server.installType === 'local' && server.localPath) {
+        console.log(`[ServerRoutes] Reading local package.json from: ${server.localPath}`);
+        metadata = await readLocalPackageJson(server.localPath);
+      } else if (server.packageName) {
+        console.log(`[ServerRoutes] Fetching npm metadata for: ${server.packageName}`);
+        metadata = await fetchNpmPackageMetadata(server.packageName);
+      }
+
+      console.log(`[ServerRoutes] Metadata result:`, metadata ? {
+        name: metadata.name,
+        hasReadme: !!metadata.packageInfo?.readme,
+        readmeLength: metadata.packageInfo?.readme?.length,
+        hasAuthor: !!metadata.packageInfo?.author,
+        hasHomepage: !!metadata.packageInfo?.homepage,
+        hasRepository: !!metadata.packageInfo?.repository,
+      } : 'null');
+
+      if (!metadata) {
+        res.json({
+          success: true,
+          server,
+          message: 'No metadata found',
+        });
+        return;
+      }
+
+      // Update server with new metadata
+      const updated = await ctx.serverStore.update(server.id, {
+        displayName: metadata.name || server.displayName,
+        description: metadata.description || server.description,
+        packageInfo: metadata.packageInfo,
+      });
+
+      res.json({ success: true, server: updated });
+    } catch (error) {
+      console.error(`[ServerRoutes] Error refreshing metadata:`, error);
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  });
+
+  // Check for package updates
+  router.get('/api/servers/:id/check-update', async (req: Request, res: Response) => {
+    try {
+      const server = await ctx.serverStore.get(req.params.id);
+
+      if (!server) {
+        res.status(404).json({
+          success: false,
+          error: 'Server not found',
+        });
+        return;
+      }
+
+      // Only check for npm-based servers with fixed version
+      if (server.installType === 'local' || !server.packageName) {
+        res.json({
+          success: true,
+          hasUpdate: false,
+          latestVersion: null,
+          currentVersion: null,
+          message: 'Local servers do not support update checking',
+        });
+        return;
+      }
+
+      // Skip if using 'latest' - always up to date
+      if (!server.packageVersion || server.packageVersion === 'latest') {
+        res.json({
+          success: true,
+          hasUpdate: false,
+          latestVersion: null,
+          currentVersion: 'latest',
+          message: 'Server is configured to use latest version',
+        });
+        return;
+      }
+
+      const updateInfo = await checkForUpdate(server.packageName, server.packageVersion);
+
+      res.json({
+        success: true,
+        hasUpdate: updateInfo.hasUpdate,
+        latestVersion: updateInfo.latestVersion,
+        currentVersion: updateInfo.currentVersion,
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  });
+
+  // Update server to latest version
+  router.post('/api/servers/:id/update', async (req: Request, res: Response) => {
+    try {
+      const server = await ctx.serverStore.get(req.params.id);
+
+      if (!server) {
+        res.status(404).json({
+          success: false,
+          error: 'Server not found',
+        });
+        return;
+      }
+
+      // Only update npm-based servers
+      if (server.installType === 'local' || !server.packageName) {
+        res.status(400).json({
+          success: false,
+          error: 'Local servers cannot be updated through this endpoint',
+        });
+        return;
+      }
+
+      // Get target version from body or fetch latest
+      const body = req.body as { version?: string };
+      let targetVersion = body.version;
+
+      if (!targetVersion) {
+        // Fetch latest version
+        const updateInfo = await checkForUpdate(server.packageName, server.packageVersion);
+        if (!updateInfo.latestVersion) {
+          res.status(400).json({
+            success: false,
+            error: 'Could not determine latest version',
+          });
+          return;
+        }
+        targetVersion = updateInfo.latestVersion;
+      }
+
+      // Check if server is running
+      const instances = ctx.processManager.getAllInstances()
+        .filter((i) => i.serverId === server.id);
+      const wasRunning = instances.some((i) => i.status === 'running');
+
+      // Stop all instances if running
+      for (const instance of instances) {
+        if (instance.status === 'running') {
+          await ctx.processManager.stop(instance.serverId, instance.workspaceId);
+        }
+      }
+
+      // Update version in store
+      const previousVersion = server.packageVersion;
+      await ctx.serverStore.update(server.id, {
+        packageVersion: targetVersion,
+      });
+
+      // Clear cache for this package to ensure fresh check next time
+      clearPackageCache(server.packageName);
+
+      // Restart if was running (only global instance for now)
+      if (wasRunning) {
+        try {
+          await ctx.processManager.start(server.id, 'global');
+        } catch (startError) {
+          console.error('[ServerRoutes] Failed to restart server after update:', startError);
+          // Don't fail the whole update, just log the error
+        }
+      }
+
+      res.json({
+        success: true,
+        previousVersion,
+        newVersion: targetVersion,
+        restarted: wasRunning,
+      });
     } catch (error) {
       res.status(500).json({
         success: false,

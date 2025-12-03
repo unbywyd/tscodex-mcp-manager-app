@@ -10,18 +10,33 @@ interface ServerListProps {
 }
 
 export function ServerList({ workspaceId, onOpenServerDetails }: ServerListProps) {
-  const { servers, isLoading, fetchServers, restartAllServers } = useAppStore();
+  const { servers, isLoading, fetchServers, restartAllServers, restartServer, isServerEnabledForWorkspace } = useAppStore();
   const [showAddServer, setShowAddServer] = useState(false);
   const [isRestarting, setIsRestarting] = useState(false);
 
-  const runningServersCount = servers.filter((s) => s.status === 'running').length;
+  const isGlobalWorkspace = workspaceId === 'global';
+
+  // For global: count all running servers
+  // For workspace: count running servers that are enabled for this workspace
+  const runningServersCount = isGlobalWorkspace
+    ? servers.filter((s) => s.status === 'running').length
+    : servers.filter((s) => s.status === 'running' && isServerEnabledForWorkspace(workspaceId, s.id)).length;
 
   const handleRestartAll = async () => {
     setIsRestarting(true);
     try {
-      await restartAllServers();
+      if (isGlobalWorkspace) {
+        // Global: restart all running servers
+        await restartAllServers();
+      } else {
+        // Workspace: restart only servers enabled for this workspace
+        const serversToRestart = servers.filter(
+          (s) => s.status === 'running' && isServerEnabledForWorkspace(workspaceId, s.id)
+        );
+        await Promise.all(serversToRestart.map((s) => restartServer(s.id)));
+      }
     } catch (err) {
-      console.error('Failed to restart all servers:', err);
+      console.error('Failed to restart servers:', err);
     } finally {
       setIsRestarting(false);
     }
@@ -34,7 +49,10 @@ export function ServerList({ workspaceId, onOpenServerDetails }: ServerListProps
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-gray-500">Loading servers...</div>
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="w-8 h-8 animate-spin text-gray-500" />
+          <p className="text-sm text-gray-500">Loading servers...</p>
+        </div>
       </div>
     );
   }

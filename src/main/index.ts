@@ -5,6 +5,7 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, dialog } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { exec } from 'child_process';
 import { McpHost } from '../host';
 import { DEFAULT_HOST_PORT } from '../shared/types';
 
@@ -16,6 +17,7 @@ let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let mcpHost: McpHost | null = null;
 let isQuitting = false;
+let runningServersCount = 0;
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
@@ -161,7 +163,30 @@ function createTray(): void {
   }
 
   tray = new Tray(icon);
-  tray.setToolTip('MCP Manager');
+  updateTrayMenu();
+
+  // Double-click to open window
+  tray.on('double-click', () => {
+    if (mainWindow) {
+      mainWindow.show();
+      mainWindow.focus();
+    } else {
+      createWindow();
+    }
+  });
+}
+
+/**
+ * Update tray menu with current status
+ */
+function updateTrayMenu(): void {
+  if (!tray) return;
+
+  const statusText = runningServersCount > 0
+    ? `${runningServersCount} server${runningServersCount > 1 ? 's' : ''} running`
+    : 'No servers running';
+
+  tray.setToolTip(`MCP Manager - ${statusText}`);
 
   const contextMenu = Menu.buildFromTemplate([
     {
@@ -177,29 +202,92 @@ function createTray(): void {
     },
     { type: 'separator' },
     {
+      label: statusText,
+      enabled: false,
+    },
+    {
       label: `Host: http://127.0.0.1:${DEFAULT_HOST_PORT}`,
       enabled: false,
     },
     { type: 'separator' },
     {
       label: 'Quit',
-      click: () => {
-        isQuitting = true;
-        app.quit();
+      click: async () => {
+        await performQuit();
       },
     },
   ]);
 
   tray.setContextMenu(contextMenu);
+}
 
-  // Double-click to open window
-  tray.on('double-click', () => {
-    if (mainWindow) {
-      mainWindow.show();
-      mainWindow.focus();
-    } else {
-      createWindow();
+/**
+ * Perform complete application quit with cleanup
+ */
+async function performQuit(): Promise<void> {
+  if (isQuitting) return;
+  isQuitting = true;
+
+  console.log('[Main] Performing quit - stopping all processes...');
+
+  try {
+    // Stop all MCP server processes
+    if (mcpHost) {
+      console.log('[Main] Stopping McpHost and all server processes...');
+      await Promise.race([
+        mcpHost.stop(),
+        new Promise((resolve) => setTimeout(resolve, 10000)), // 10s timeout
+      ]);
+      console.log('[Main] McpHost stopped');
     }
+
+    // Force kill any remaining child processes on Windows
+    if (process.platform === 'win32') {
+      await forceKillChildProcesses();
+    }
+  } catch (error) {
+    console.error('[Main] Error during quit cleanup:', error);
+  }
+
+  console.log('[Main] Cleanup complete, quitting app...');
+  app.quit();
+}
+
+/**
+ * Force kill any remaining child processes (Windows)
+ */
+function forceKillChildProcesses(): Promise<void> {
+  return new Promise((resolve) => {
+    // Kill any node processes that might be MCP servers
+    // This is a safety net - normally stopAll() should handle this
+    exec('wmic process where "ParentProcessId=' + process.pid + '" get ProcessId 2>nul', (error, stdout) => {
+      if (error || !stdout) {
+        resolve();
+        return;
+      }
+
+      const pids = stdout
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => /^\d+$/.test(line));
+
+      if (pids.length === 0) {
+        resolve();
+        return;
+      }
+
+      console.log(`[Main] Force killing ${pids.length} remaining child processes...`);
+
+      let completed = 0;
+      pids.forEach((pid) => {
+        exec(`taskkill /PID ${pid} /T /F`, () => {
+          completed++;
+          if (completed === pids.length) {
+            setTimeout(resolve, 500); // Wait for OS cleanup
+          }
+        });
+      });
+    });
   });
 }
 
@@ -224,9 +312,8 @@ function setupIpcHandlers(): void {
     mainWindow?.hide();
   });
 
-  ipcMain.on('app:quit', () => {
-    isQuitting = true;
-    app.quit();
+  ipcMain.on('app:quit', async () => {
+    await performQuit();
   });
 
   // Host status
@@ -279,6 +366,12 @@ function setupIpcHandlers(): void {
     }
     return result.filePaths[0];
   });
+
+  // Update running servers count (called from renderer via WebSocket events)
+  ipcMain.on('app:update-servers-count', (_event, count: number) => {
+    runningServersCount = count;
+    updateTrayMenu();
+  });
 }
 
 /**
@@ -297,15 +390,6 @@ async function startHost(): Promise<void> {
   }
 }
 
-/**
- * Stop the MCP Host server
- */
-async function stopHost(): Promise<void> {
-  if (mcpHost) {
-    await mcpHost.stop();
-    mcpHost = null;
-  }
-}
 
 // ============================================================================
 // App Lifecycle
@@ -362,20 +446,10 @@ app.on('window-all-closed', () => {
   }
 });
 
-app.on('before-quit', (event) => {
+app.on('before-quit', async (event) => {
   if (!isQuitting) {
     event.preventDefault();
-    isQuitting = true;
-
-    console.log('[Main] Stopping host before quit...');
-    // Stop host and then quit
-    stopHost()
-      .then(() => console.log('[Main] Host stopped successfully'))
-      .catch((err) => console.error('[Main] Error stopping host:', err))
-      .finally(() => {
-        console.log('[Main] Quitting app...');
-        app.quit();
-      });
+    await performQuit();
   }
 });
 

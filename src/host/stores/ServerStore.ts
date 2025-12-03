@@ -85,6 +85,12 @@ export class ServerStore {
     localPath?: string;
     displayName?: string;
     description?: string;
+    packageInfo?: {
+      homepage?: string;
+      repository?: string;
+      readme?: string;
+      author?: string | { name?: string; email?: string; url?: string };
+    };
   }): Promise<ServerTemplate> {
     const now = Date.now();
 
@@ -97,6 +103,7 @@ export class ServerStore {
       displayName: data.displayName || data.packageName || 'Unknown Server',
       description: data.description,
       defaultConfig: {},
+      packageInfo: data.packageInfo,
       createdAt: now,
       updatedAt: now,
     };

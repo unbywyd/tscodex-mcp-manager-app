@@ -123,6 +123,7 @@ export class WorkspaceStore {
     projectRoot: string;
     source?: WorkspaceSource;
     sourceInstanceId?: string;
+    sourceLabel?: string;
   }): Promise<WorkspaceConfig> {
     // Check if workspace already exists for this path
     const existing = this.findByProjectRoot(data.projectRoot);
@@ -138,6 +139,7 @@ export class WorkspaceStore {
       projectRoot: data.projectRoot,
       source: data.source || 'manual',
       sourceInstanceId: data.sourceInstanceId,
+      sourceLabel: data.sourceLabel,
       createdAt: now,
       updatedAt: now,
     };
@@ -228,6 +230,14 @@ export class WorkspaceStore {
       servers.delete(serverId);
       await this.save();
     }
+  }
+
+  /**
+   * Clear all server configs for a workspace (reset to Global)
+   */
+  async clearAllServerConfigs(workspaceId: string): Promise<void> {
+    this.workspaceServers.delete(workspaceId);
+    await this.save();
   }
 
   /**

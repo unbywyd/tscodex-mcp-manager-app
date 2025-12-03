@@ -15,6 +15,11 @@ import {
   Unlock,
   ChevronRight,
   Loader2,
+  Power,
+  PowerOff,
+  Link2,
+  Check,
+  ArrowUpCircle,
 } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import type { ServerInfo } from '../../../shared/types';
@@ -35,6 +40,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '../ui/alert-dialog';
+import { WorkspaceServerInfoModal } from './WorkspaceServerInfoModal';
 
 interface ServerCardProps {
   server: ServerInfo;
@@ -43,9 +49,26 @@ interface ServerCardProps {
 }
 
 export function ServerCard({ server, workspaceId, onOpenDetails }: ServerCardProps) {
-  const { startServer, stopServer, restartServer, deleteServer } = useAppStore();
+  const {
+    startServer,
+    stopServer,
+    restartServer,
+    deleteServer,
+    updateServer,
+    isServerEnabledForWorkspace,
+    setServerEnabledForWorkspace,
+    setSelectedWorkspace,
+  } = useAppStore();
   const [isLoading, setIsLoading] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showWorkspaceInfoModal, setShowWorkspaceInfoModal] = useState(false);
+
+  // Check if server can be updated (has fixed version, not local, has update available)
+  const canUpdate = server.hasUpdate && server.installType !== 'local' && server.packageVersion && server.packageVersion !== 'latest';
+
+  const isGlobalWorkspace = workspaceId === 'global';
+  const isEnabledForWorkspace = isServerEnabledForWorkspace(workspaceId, server.id);
 
   const statusColors = {
     running: 'bg-status-running',
@@ -94,6 +117,23 @@ export function ServerCard({ server, workspaceId, onOpenDetails }: ServerCardPro
     setIsLoading(false);
   };
 
+  const handleToggleEnabled = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsLoading(true);
+    try {
+      const newEnabled = !isEnabledForWorkspace;
+      await setServerEnabledForWorkspace(workspaceId, server.id, newEnabled);
+
+      // If enabling and server is stopped globally, start it
+      if (newEnabled && server.status === 'stopped') {
+        await startServer(server.id);
+      }
+    } catch (error) {
+      console.error('Failed to toggle server enabled:', error);
+    }
+    setIsLoading(false);
+  };
+
   const handleDelete = async () => {
     try {
       await deleteServer(server.id);
@@ -101,6 +141,16 @@ export function ServerCard({ server, workspaceId, onOpenDetails }: ServerCardPro
       console.error('Failed to delete server:', error);
     }
     setShowDeleteDialog(false);
+  };
+
+  const handleUpdate = async () => {
+    setIsUpdating(true);
+    try {
+      await updateServer(server.id);
+    } catch (error) {
+      console.error('Failed to update server:', error);
+    }
+    setIsUpdating(false);
   };
 
   const copyUrl = () => {
@@ -116,13 +166,27 @@ export function ServerCard({ server, workspaceId, onOpenDetails }: ServerCardPro
   };
 
   const handleCardClick = () => {
+    if (!isGlobalWorkspace) {
+      // From workspace view, show info modal first
+      setShowWorkspaceInfoModal(true);
+    } else {
+      onOpenDetails?.(server.id);
+    }
+  };
+
+  const handleGoToServerFromModal = () => {
+    setShowWorkspaceInfoModal(false);
+    setSelectedWorkspace('global');
     onOpenDetails?.(server.id);
   };
+
+  // For workspace view, show dimmed if disabled
+  const cardOpacity = !isGlobalWorkspace && !isEnabledForWorkspace ? 'opacity-50' : '';
 
   return (
     <>
       <div
-        className="card p-4 relative group cursor-pointer hover:border-border-hover transition-colors"
+        className={`card p-4 relative group cursor-pointer hover:border-border-hover transition-colors ${cardOpacity}`}
         onClick={handleCardClick}
       >
         <div className="flex items-start gap-4">
@@ -140,6 +204,25 @@ export function ServerCard({ server, workspaceId, onOpenDetails }: ServerCardPro
                 <span className={`w-2 h-2 rounded-full ${statusColors[server.status]}`} />
                 <span className="text-xs text-gray-400">{statusLabels[server.status]}</span>
               </div>
+              {/* Workspace enabled/disabled badge */}
+              {!isGlobalWorkspace && (
+                <span
+                  className={`px-1.5 py-0.5 text-xs font-medium rounded ${
+                    isEnabledForWorkspace
+                      ? 'bg-emerald-900/50 text-emerald-400'
+                      : 'bg-gray-700 text-gray-400'
+                  }`}
+                >
+                  {isEnabledForWorkspace ? 'Enabled' : 'Disabled'}
+                </span>
+              )}
+              {/* Update available badge */}
+              {canUpdate && (
+                <span className="px-1.5 py-0.5 text-xs font-medium rounded bg-amber-900/50 text-amber-400 flex items-center gap-1">
+                  <ArrowUpCircle className="w-3 h-3" />
+                  {server.latestVersion}
+                </span>
+              )}
             </div>
 
             {/* Description */}
@@ -183,88 +266,158 @@ export function ServerCard({ server, workspaceId, onOpenDetails }: ServerCardPro
                 </div>
               )}
             </div>
+
+            {/* MCP URL - only show if running (and enabled for non-global workspace) */}
+            {server.status === 'running' && server.port && (isGlobalWorkspace || isEnabledForWorkspace) && (
+              <div className="flex items-center gap-2 mt-2">
+                <Link2 className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
+                <code className="text-xs text-emerald-400 bg-emerald-900/20 px-1.5 py-0.5 rounded truncate">
+                  {isGlobalWorkspace
+                    ? `http://127.0.0.1:${server.port}/mcp`
+                    : `http://127.0.0.1:4040/mcp/${server.id}/${workspaceId}`}
+                </code>
+              </div>
+            )}
           </div>
 
           {/* Actions */}
           <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-            {server.status === 'running' ? (
+            {isGlobalWorkspace ? (
+              // Global workspace: Show Start/Stop/Restart controls + Settings + Menu
               <>
+                {server.status === 'running' ? (
+                  <>
+                    <button
+                      onClick={handleRestart}
+                      disabled={isLoading}
+                      className="btn-icon"
+                      title="Restart"
+                    >
+                      {isLoading ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <RotateCcw className="w-4 h-4" />
+                      )}
+                    </button>
+                    <button
+                      onClick={handleStop}
+                      disabled={isLoading}
+                      className="btn-icon"
+                      title="Stop"
+                    >
+                      {isLoading ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Square className="w-4 h-4" />
+                      )}
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={handleStart}
+                    disabled={isLoading || server.status === 'starting'}
+                    className="btn-icon"
+                    title="Start"
+                  >
+                    {isLoading || server.status === 'starting' ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Play className="w-4 h-4" />
+                    )}
+                  </button>
+                )}
+
                 <button
-                  onClick={handleRestart}
-                  disabled={isLoading}
+                  onClick={handleSettingsClick}
                   className="btn-icon"
-                  title="Restart"
+                  title="Configure"
                 >
-                  {isLoading ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <RotateCcw className="w-4 h-4" />
-                  )}
+                  <Settings className="w-4 h-4" />
                 </button>
+
+                {/* More menu - only in Global */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button className="btn-icon">
+                      <MoreVertical className="w-4 h-4" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    {server.port && (
+                      <DropdownMenuItem onClick={copyUrl}>
+                        <Copy className="w-4 h-4 mr-2" />
+                        Copy URL
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuItem onClick={() => onOpenDetails?.(server.id)}>
+                      <Info className="w-4 h-4 mr-2" />
+                      Details
+                    </DropdownMenuItem>
+                    {canUpdate && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          onClick={handleUpdate}
+                          disabled={isUpdating}
+                          className="text-amber-400 focus:text-amber-400"
+                        >
+                          {isUpdating ? (
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          ) : (
+                            <ArrowUpCircle className="w-4 h-4 mr-2" />
+                          )}
+                          Update to {server.latestVersion}
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={() => setShowDeleteDialog(true)}
+                      className="text-red-400 focus:text-red-400"
+                    >
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>
+            ) : (
+              // Workspace view: Enable/Disable toggle + Start button if stopped
+              <>
+                {/* Start button - show if enabled for workspace but server is stopped */}
+                {isEnabledForWorkspace && server.status === 'stopped' && (
+                  <button
+                    onClick={handleStart}
+                    disabled={isLoading}
+                    className="btn-icon text-emerald-400 hover:text-emerald-300"
+                    title="Start server"
+                  >
+                    {isLoading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Play className="w-4 h-4" />
+                    )}
+                  </button>
+                )}
+                {/* Enable/Disable toggle */}
                 <button
-                  onClick={handleStop}
+                  onClick={handleToggleEnabled}
                   disabled={isLoading}
-                  className="btn-icon"
-                  title="Stop"
+                  className={`btn-icon ${
+                    isEnabledForWorkspace ? 'text-emerald-400 hover:text-emerald-300' : 'text-gray-500 hover:text-gray-400'
+                  }`}
+                  title={isEnabledForWorkspace ? 'Disable for this workspace' : 'Enable for this workspace'}
                 >
                   {isLoading ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : isEnabledForWorkspace ? (
+                    <Power className="w-4 h-4" />
                   ) : (
-                    <Square className="w-4 h-4" />
+                    <PowerOff className="w-4 h-4" />
                   )}
                 </button>
               </>
-            ) : (
-              <button
-                onClick={handleStart}
-                disabled={isLoading || server.status === 'starting'}
-                className="btn-icon"
-                title="Start"
-              >
-                {isLoading || server.status === 'starting' ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Play className="w-4 h-4" />
-                )}
-              </button>
             )}
-
-            <button
-              onClick={handleSettingsClick}
-              className="btn-icon"
-              title="Configure"
-            >
-              <Settings className="w-4 h-4" />
-            </button>
-
-            {/* More menu with Radix DropdownMenu */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="btn-icon">
-                  <MoreVertical className="w-4 h-4" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {server.port && (
-                  <DropdownMenuItem onClick={copyUrl}>
-                    <Copy className="w-4 h-4 mr-2" />
-                    Copy URL
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuItem onClick={() => onOpenDetails?.(server.id)}>
-                  <Info className="w-4 h-4 mr-2" />
-                  Details
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() => setShowDeleteDialog(true)}
-                  className="text-red-400 focus:text-red-400"
-                >
-                  <Trash2 className="w-4 h-4 mr-2" />
-                  Delete
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
 
             {/* Navigation indicator */}
             <ChevronRight className="w-5 h-5 text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -293,6 +446,16 @@ export function ServerCard({ server, workspaceId, onOpenDetails }: ServerCardPro
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Workspace server info modal */}
+      {showWorkspaceInfoModal && (
+        <WorkspaceServerInfoModal
+          server={server}
+          workspaceId={workspaceId}
+          onClose={() => setShowWorkspaceInfoModal(false)}
+          onGoToServer={handleGoToServerFromModal}
+        />
+      )}
     </>
   );
 }

@@ -1,23 +1,50 @@
 import { useState } from 'react';
-import { Server, Key } from 'lucide-react';
+import { Server, Key, RotateCcw, Globe, Folder } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { ServerList } from '../servers/ServerList';
 import { SecretsView } from '../secrets/SecretsView';
 import { ServerDetailPage } from '../servers/ServerDetailPage';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../ui/alert-dialog';
 
 interface MainContentProps {
   workspaceId: string;
 }
 
 export function MainContent({ workspaceId }: MainContentProps) {
-  const { selectedTab, setSelectedTab, workspaces } = useAppStore();
+  const { selectedTab, setSelectedTab, workspaces, resetWorkspaceSecrets } = useAppStore();
   const [selectedServerId, setSelectedServerId] = useState<string | null>(null);
+  const [showResetDialog, setShowResetDialog] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
 
-  const workspace = workspaceId === 'global'
+  const isGlobal = workspaceId === 'global';
+  const workspace = isGlobal
     ? null
     : workspaces.find((ws) => ws.id === workspaceId);
 
   const title = workspace?.label || 'Global';
+
+  const handleReset = async () => {
+    if (isGlobal || !workspace) return;
+
+    setIsResetting(true);
+    try {
+      await resetWorkspaceSecrets(workspaceId);
+      setShowResetDialog(false);
+    } catch (error) {
+      console.error('Failed to reset workspace:', error);
+    } finally {
+      setIsResetting(false);
+    }
+  };
 
   // If a server is selected, show its detail page
   if (selectedServerId) {
@@ -36,10 +63,35 @@ export function MainContent({ workspaceId }: MainContentProps) {
       <div className="border-b border-border-default">
         {/* Workspace title */}
         <div className="px-6 pt-4 pb-2">
-          <h1 className="text-lg font-semibold">{title}</h1>
-          {workspace && (
-            <p className="text-sm text-gray-500 truncate">{workspace.projectRoot}</p>
-          )}
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-center gap-3 min-w-0">
+              {isGlobal ? (
+                <Globe className="w-5 h-5 text-gray-400 flex-shrink-0" />
+              ) : (
+                <Folder className="w-5 h-5 text-gray-400 flex-shrink-0" />
+              )}
+              <div className="min-w-0">
+                <h1 className="text-lg font-semibold truncate">{title}</h1>
+                {workspace ? (
+                  <p className="text-sm text-gray-500 truncate">{workspace.projectRoot}</p>
+                ) : (
+                  <p className="text-sm text-gray-500">Default settings for all workspaces</p>
+                )}
+              </div>
+            </div>
+
+            {/* Reset button - only for non-global workspaces */}
+            {!isGlobal && workspace && (
+              <button
+                onClick={() => setShowResetDialog(true)}
+                className="btn btn-secondary text-sm flex-shrink-0"
+                title="Reset workspace secrets to use global values"
+              >
+                <RotateCcw className="w-4 h-4 mr-1.5" />
+                Reset to Global
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Tabs */}
@@ -80,6 +132,30 @@ export function MainContent({ workspaceId }: MainContentProps) {
           <SecretsView workspaceId={workspaceId} />
         )}
       </div>
+
+      {/* Reset confirmation dialog */}
+      <AlertDialog open={showResetDialog} onOpenChange={setShowResetDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reset Workspace Secrets?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will delete all workspace-specific secrets for "{workspace?.label}".
+              The workspace will inherit all secrets from the Global workspace.
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isResetting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleReset}
+              disabled={isResetting}
+              className="bg-orange-600 hover:bg-orange-700 text-white"
+            >
+              {isResetting ? 'Resetting...' : 'Reset Secrets'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

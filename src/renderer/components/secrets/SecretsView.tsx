@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Key, Plus, Trash2, Eye, EyeOff, Save, Info, AlertCircle } from 'lucide-react';
+import { Key, Plus, Trash2, Eye, EyeOff, Save, Info, AlertCircle, Loader2 } from 'lucide-react';
 
 interface SecretsViewProps {
   workspaceId: string;
@@ -18,6 +18,7 @@ const GLOBAL_SERVER_ID = '__app__';
 // Scope tag colors
 const scopeColors = {
   global: { bg: 'bg-gray-600', text: 'text-gray-200', label: 'Global' },
+  workspace: { bg: 'bg-blue-600', text: 'text-blue-200', label: 'Workspace' },
 };
 
 export function SecretsView({ workspaceId }: SecretsViewProps) {
@@ -30,8 +31,9 @@ export function SecretsView({ workspaceId }: SecretsViewProps) {
   const [error, setError] = useState<string | null>(null);
 
   // Determine scope based on workspaceId
-  const scope = workspaceId === 'global' ? 'global' : 'workspace';
-  const scopeInfo = scopeColors.global;
+  const isGlobal = workspaceId === 'global';
+  const scope = isGlobal ? 'global' : 'workspace';
+  const scopeInfo = isGlobal ? scopeColors.global : scopeColors.workspace;
 
   // Prefix for secret keys
   const SECRET_PREFIX = 'SECRET_';
@@ -193,12 +195,26 @@ export function SecretsView({ workspaceId }: SecretsViewProps) {
     setShowValues({ ...showValues, [key]: !showValues[key] });
   };
 
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="w-8 h-8 animate-spin text-gray-500" />
+          <p className="text-sm text-gray-500">Loading secrets...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full">
       {/* Header - full width */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div className="flex items-center gap-3">
-          <h3 className="text-sm font-medium text-gray-400">Global Secrets</h3>
+          <h3 className="text-sm font-medium text-gray-400">
+            {isGlobal ? 'Global Secrets' : 'Workspace Secrets'}
+          </h3>
           <span
             className={`px-2 py-0.5 text-xs font-medium rounded ${scopeInfo.bg} ${scopeInfo.text}`}
           >
@@ -242,8 +258,9 @@ export function SecretsView({ workspaceId }: SecretsViewProps) {
               <div className="text-center max-w-md">
                 <h3 className="text-xl font-semibold text-white mb-2">No Secrets Configured</h3>
                 <p className="text-gray-400 mb-6 leading-relaxed">
-                  Add secrets to securely store API keys, tokens, and other sensitive information
-                  that will be available to all MCP servers.
+                  {isGlobal
+                    ? 'Add secrets to securely store API keys, tokens, and other sensitive information that will be available to all MCP servers.'
+                    : 'Add workspace-specific secrets that will override global secrets for this workspace. Leave empty to use global secrets.'}
                 </p>
                 <p className="text-sm text-gray-500 mb-4">
                   Use the "Add Secret" button above to get started.
@@ -351,16 +368,25 @@ export function SecretsView({ workspaceId }: SecretsViewProps) {
                     </span>{' '}
                     secrets (lowest priority)
                   </li>
+                  {!isGlobal && (
+                    <li>
+                      <span className="px-1.5 py-0.5 text-xs font-medium rounded bg-blue-600 text-blue-200">
+                        Workspace
+                      </span>{' '}
+                      secrets override global
+                    </li>
+                  )}
                   <li>
                     <span className="px-1.5 py-0.5 text-xs font-medium rounded bg-emerald-600 text-emerald-200">
                       Server
                     </span>{' '}
-                    secrets override global (highest priority)
+                    secrets override {isGlobal ? 'global' : 'workspace'} (highest priority)
                   </li>
                 </ol>
                 <p className="text-sm text-gray-500 mt-2">
-                  Server-specific secrets (set in server settings) will override global secrets with
-                  the same key.
+                  {isGlobal
+                    ? 'Global secrets apply to all workspaces unless overridden.'
+                    : 'Workspace secrets override global secrets. Use "Reset to Global" to clear workspace-specific secrets.'}
                 </p>
               </div>
             </div>

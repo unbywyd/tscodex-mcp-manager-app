@@ -15,8 +15,10 @@ export function createSessionRoutes(router: Router, ctx: RouteContext): void {
         projectRoot?: string;
         clientType?: ClientType;
         clientInstanceId?: string;
+        /** Human-readable name of the client (e.g., "Cursor", "VS Code", "Claude Code") */
+        sourceLabel?: string;
       };
-      const { projectRoot, clientType, clientInstanceId } = body;
+      const { projectRoot, clientType, clientInstanceId, sourceLabel } = body;
 
       if (!clientType || !clientInstanceId) {
         res.status(400).json({
@@ -39,6 +41,7 @@ export function createSessionRoutes(router: Router, ctx: RouteContext): void {
           projectRoot,
           source: 'api', // Created via API (IDE extension, etc.)
           sourceInstanceId: clientInstanceId,
+          sourceLabel, // e.g., "Cursor", "VS Code", "Claude Code"
         });
 
         ctx.eventBus.emitAppEvent({

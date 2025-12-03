@@ -125,6 +125,10 @@ async function handleGatewayRequest(
         method: req.method || 'POST',
         headers: {
           'Content-Type': 'application/json',
+          // Standard MCP SDK headers for per-request context
+          'X-MCP-Workspace-Id': workspaceId,
+          'X-MCP-Project-Root': workspace?.projectRoot || '',
+          // Legacy headers for backward compatibility
           'X-Workspace-Id': workspaceId,
           'X-Project-Root': workspace?.projectRoot || '',
           'X-Server-Id': serverId,

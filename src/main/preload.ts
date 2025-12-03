@@ -12,6 +12,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   close: () => ipcRenderer.send('app:close'),
   quit: () => ipcRenderer.send('app:quit'),
 
+  // Tray status
+  updateServersCount: (count: number) => ipcRenderer.send('app:update-servers-count', count),
+
   // Host status
   getHostStatus: () => ipcRenderer.invoke('host:get-status'),
   getHostPort: () => ipcRenderer.invoke('host:get-port'),
@@ -44,6 +47,7 @@ declare global {
       maximize: () => void;
       close: () => void;
       quit: () => void;
+      updateServersCount: (count: number) => void;
       getHostStatus: () => Promise<{ running: boolean; port: number }>;
       getHostPort: () => Promise<number>;
       getSecrets: (serverId: string, scope: string, workspaceId?: string) => Promise<Record<string, string>>;

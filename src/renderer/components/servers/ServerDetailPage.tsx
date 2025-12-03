@@ -19,11 +19,13 @@ import {
   Github,
   Globe,
   Code,
+  BookOpen,
 } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { ServerSecretsManager } from './ServerSecretsManager';
 import { ServerConfigEditor } from './ServerConfigEditor';
 import { AuthorizationCard } from './AuthorizationCard';
+import { ReadmePage } from './ReadmePage';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '../ui/accordion';
 import { Alert } from '../ui/alert';
 import { CodeBlock } from '../ui/code-block';
@@ -82,15 +84,17 @@ interface ServerMetadata {
 }
 
 export function ServerDetailPage({ serverId, workspaceId, onBack }: ServerDetailPageProps) {
-  const { servers, startServer, stopServer, restartServer } = useAppStore();
+  const { servers, startServer, stopServer, restartServer, refreshServerMetadata } = useAppStore();
   const [selectedTab, setSelectedTab] = useState<ServerTab>('overview');
   const [overviewSubTab, setOverviewSubTab] = useState<OverviewSubTab>('info');
   const [isLoading, setIsLoading] = useState(false);
   const [metadata, setMetadata] = useState<ServerMetadata | null>(null);
   const [isLoadingMeta, setIsLoadingMeta] = useState(false);
+  const [isRefreshingPackageInfo, setIsRefreshingPackageInfo] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [healthStatus, setHealthStatus] = useState<'idle' | 'checking' | 'ok' | 'error'>('idle');
   const [healthError, setHealthError] = useState<string | null>(null);
+  const [showReadme, setShowReadme] = useState(false);
 
   const server = servers.find((s) => s.id === serverId);
 
@@ -124,6 +128,17 @@ export function ServerDetailPage({ serverId, workspaceId, onBack }: ServerDetail
     );
   }
 
+  // Show README page if requested
+  if (showReadme && server.packageInfo?.readme) {
+    return (
+      <ReadmePage
+        serverName={server.displayName}
+        readme={server.packageInfo.readme}
+        onBack={() => setShowReadme(false)}
+      />
+    );
+  }
+
   const handleStart = async () => {
     setIsLoading(true);
     try {
@@ -154,13 +169,25 @@ export function ServerDetailPage({ serverId, workspaceId, onBack }: ServerDetail
     setIsLoading(false);
   };
 
-  const handleCopyUrl = async () => {
-    if (server.port) {
-      await navigator.clipboard.writeText(`http://127.0.0.1:${server.port}`);
-      setCopiedUrl(true);
-      setTimeout(() => setCopiedUrl(false), 2000);
-    }
+  const handleCopyUrl = async (url: string) => {
+    await navigator.clipboard.writeText(url);
+    setCopiedUrl(true);
+    setTimeout(() => setCopiedUrl(false), 2000);
   };
+
+  const handleRefreshPackageInfo = async () => {
+    setIsRefreshingPackageInfo(true);
+    try {
+      await refreshServerMetadata(serverId);
+    } catch (error) {
+      console.error('Failed to refresh package info:', error);
+    }
+    setIsRefreshingPackageInfo(false);
+  };
+
+  // URLs for the server
+  const directUrl = server.port ? `http://127.0.0.1:${server.port}` : null;
+  const mcpUrl = server.port ? `http://127.0.0.1:${server.port}/mcp` : null;
 
   const handleHealthCheck = async () => {
     if (!server.port) return;
@@ -402,33 +429,54 @@ export function ServerDetailPage({ serverId, workspaceId, onBack }: ServerDetail
                     )}
                   </div>
 
-                  {/* GitHub / Homepage buttons */}
-                  {server.packageInfo && (server.packageInfo.repository || server.packageInfo.homepage) && (
-                    <div className="flex items-center gap-3">
-                      {server.packageInfo.repository && (
-                        <a
-                          href={server.packageInfo.repository}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="btn btn-secondary"
-                        >
-                          <Github className="w-4 h-4 mr-2" />
-                          GitHub
-                        </a>
+                  {/* GitHub / Homepage / README / Refresh buttons */}
+                  <div className="flex items-center gap-3 flex-wrap">
+                    {server.packageInfo?.repository && (
+                      <a
+                        href={server.packageInfo.repository}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-secondary"
+                      >
+                        <Github className="w-4 h-4 mr-2" />
+                        GitHub
+                      </a>
+                    )}
+                    {server.packageInfo?.homepage && (
+                      <a
+                        href={server.packageInfo.homepage}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-secondary"
+                      >
+                        <Globe className="w-4 h-4 mr-2" />
+                        Homepage
+                      </a>
+                    )}
+                    {server.packageInfo?.readme && (
+                      <button
+                        onClick={() => setShowReadme(true)}
+                        className="btn btn-secondary"
+                        title="View README"
+                      >
+                        <BookOpen className="w-4 h-4 mr-2" />
+                        README
+                      </button>
+                    )}
+                    <button
+                      onClick={handleRefreshPackageInfo}
+                      disabled={isRefreshingPackageInfo}
+                      className="btn btn-secondary"
+                      title="Refresh package info from package.json or npm registry"
+                    >
+                      {isRefreshingPackageInfo ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <RefreshCw className="w-4 h-4 mr-2" />
                       )}
-                      {server.packageInfo.homepage && (
-                        <a
-                          href={server.packageInfo.homepage}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="btn btn-secondary"
-                        >
-                          <Globe className="w-4 h-4 mr-2" />
-                          Homepage
-                        </a>
-                      )}
-                    </div>
-                  )}
+                      Refresh Info
+                    </button>
+                  </div>
 
                   {/* Capabilities */}
                   {(metadata || server.toolsCount !== undefined) && (
@@ -501,21 +549,46 @@ export function ServerDetailPage({ serverId, workspaceId, onBack }: ServerDetail
 
                     {server.status === 'running' && server.port ? (
                       <div className="space-y-4">
-                        <div className="flex items-center gap-3">
-                          <code className="flex-1 px-4 py-3 bg-bg-tertiary rounded-md font-mono text-sm">
-                            http://127.0.0.1:{server.port}
-                          </code>
-                          <button
-                            onClick={handleCopyUrl}
-                            className="btn btn-secondary"
-                            title="Copy URL"
-                          >
-                            {copiedUrl ? (
-                              <Check className="w-4 h-4 text-emerald-400" />
-                            ) : (
+                        {/* MCP Endpoint - Primary */}
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1.5">
+                            MCP Endpoint (use this in your client)
+                          </label>
+                          <div className="flex items-center gap-3">
+                            <code className="flex-1 px-4 py-3 bg-bg-tertiary rounded-md font-mono text-sm text-emerald-400">
+                              {mcpUrl}
+                            </code>
+                            <button
+                              onClick={() => handleCopyUrl(mcpUrl!)}
+                              className="btn btn-secondary"
+                              title="Copy MCP URL"
+                            >
+                              {copiedUrl ? (
+                                <Check className="w-4 h-4 text-emerald-400" />
+                              ) : (
+                                <Copy className="w-4 h-4" />
+                              )}
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Base URL */}
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1.5">
+                            Base URL
+                          </label>
+                          <div className="flex items-center gap-3">
+                            <code className="flex-1 px-4 py-3 bg-bg-tertiary rounded-md font-mono text-sm">
+                              {directUrl}
+                            </code>
+                            <button
+                              onClick={() => handleCopyUrl(directUrl!)}
+                              className="btn btn-secondary"
+                              title="Copy Base URL"
+                            >
                               <Copy className="w-4 h-4" />
-                            )}
-                          </button>
+                            </button>
+                          </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-4 text-sm">

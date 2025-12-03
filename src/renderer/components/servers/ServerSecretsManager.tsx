@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Key, Plus, Trash2, Eye, EyeOff, Save, AlertCircle, Info } from 'lucide-react';
+import { Key, Plus, Trash2, Eye, EyeOff, Save, AlertCircle, Info, Loader2 } from 'lucide-react';
 
 /**
  * Scope types for secrets:
@@ -218,6 +218,18 @@ export function ServerSecretsManager({
   const toggleShowValue = (key: string) => {
     setShowValues({ ...showValues, [key]: !showValues[key] });
   };
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="w-8 h-8 animate-spin text-gray-500" />
+          <p className="text-sm text-gray-500">Loading secrets...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full">

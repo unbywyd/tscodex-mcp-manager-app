@@ -79,8 +79,9 @@ export function createWorkspaceRoutes(router: Router, ctx: RouteContext): void {
         projectRoot?: string;
         source?: WorkspaceSource;
         sourceInstanceId?: string;
+        sourceLabel?: string;
       };
-      const { label, projectRoot, source, sourceInstanceId } = body;
+      const { label, projectRoot, source, sourceInstanceId, sourceLabel } = body;
 
       if (!label || !projectRoot) {
         res.status(400).json({
@@ -95,6 +96,7 @@ export function createWorkspaceRoutes(router: Router, ctx: RouteContext): void {
         projectRoot,
         source,
         sourceInstanceId,
+        sourceLabel,
       });
 
       ctx.eventBus.emitAppEvent({
@@ -295,6 +297,12 @@ export function createWorkspaceRoutes(router: Router, ctx: RouteContext): void {
           secretKeys,
         });
 
+        // Emit event so UI updates
+        ctx.eventBus.emitAppEvent({
+          type: 'workspace-updated',
+          data: workspace,
+        });
+
         const config = ctx.workspaceStore.getServerConfig(workspaceId, serverId);
         res.json({ success: true, config, isGlobal: false });
       }
@@ -311,6 +319,46 @@ export function createWorkspaceRoutes(router: Router, ctx: RouteContext): void {
     try {
       await ctx.workspaceStore.deleteServerConfig(req.params.id, req.params.serverId);
       res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  });
+
+  // Reset workspace to Global defaults (clear all server config overrides)
+  router.post('/api/workspaces/:id/reset', async (req: Request, res: Response) => {
+    try {
+      const { id: workspaceId } = req.params;
+
+      // Cannot reset global workspace
+      if (workspaceId === 'global') {
+        res.status(400).json({
+          success: false,
+          error: 'Cannot reset global workspace',
+        });
+        return;
+      }
+
+      const workspace = ctx.workspaceStore.get(workspaceId);
+      if (!workspace) {
+        res.status(404).json({
+          success: false,
+          error: 'Workspace not found',
+        });
+        return;
+      }
+
+      // Clear all server configs for this workspace
+      await ctx.workspaceStore.clearAllServerConfigs(workspaceId);
+
+      ctx.eventBus.emitAppEvent({
+        type: 'workspace-updated',
+        data: workspace,
+      });
+
+      res.json({ success: true, message: 'Workspace reset to Global defaults' });
     } catch (error) {
       res.status(500).json({
         success: false,

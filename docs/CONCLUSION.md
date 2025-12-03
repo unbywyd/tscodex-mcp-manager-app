@@ -21,56 +21,54 @@
 - [x] `POST /api/sessions/connect` - подключение IDE по projectRoot
 - [x] Автоматическое создание VP если не существует
 - [x] Поиск VP по пути (`findByProjectRoot`)
-- [x] `GET /api/workspaces/by-path?path=...` - проверка существования VP (новый эндпоинт)
+- [x] `GET /api/workspaces/by-path?path=...` - проверка существования VP
 - [x] Heartbeat механизм (`POST /api/sessions/ping`)
 - [x] Возврат списка MCP серверов для workspace
+- [x] **sourceLabel** - идентификация клиента (Cursor, VS Code, etc.)
 
-#### Electron App (Базовая структура)
+#### Electron App
 - [x] Main process с IPC
 - [x] Preload скрипт для безопасного IPC
 - [x] Запуск McpHost при старте приложения
 - [x] React renderer setup
+- [x] **System Tray** - сворачивание в трей при закрытии окна
+- [x] **Tray Menu** - динамическое меню с количеством running серверов
+- [x] **Graceful Shutdown** - корректная остановка всех процессов при выходе
+- [x] **Force Kill** - принудительное завершение child processes (Windows)
+
+#### UI Компоненты
+- [x] Sidebar с навигацией и списком workspaces
+- [x] ServerList и ServerCard
+- [x] ServerDetailPage
+- [x] SecretsView - глобальные секреты
+- [x] ServerSecretsManager - секреты сервера
+- [x] AddServerFlow - мастер добавления сервера
+- [x] ServerConfigEditor - редактирование конфигурации
+- [x] CreateWorkspaceModal - создание VP с выбором пути
+- [x] EditWorkspaceModal - редактирование VP
+- [x] **AboutModal** - информация о приложении, ссылки, автор
+- [x] Titlebar кнопки (minimize/maximize/close → tray)
 
 ---
 
 ### 🔄 Что в процессе / требует доработки
 
-#### UI Компоненты (80% готово)
-- [x] Sidebar с навигацией
-- [x] ServerList и ServerCard
-- [x] ServerDetailPage (базовая версия)
-- [x] **SecretsView** - глобальные секреты (+ ServerSecretsManager для секретов сервера)
-- [x] **AddServerFlow** - мастер добавления сервера
-- [x] **ServerConfigEditor** - редактирование конфигурации
-
-#### Virtual Profiles (VP) - Главная задача
-- [ ] **Sidebar VP List** - список VP под Global в сайдбаре
-- [ ] **AddWorkspaceModal** - создание VP с выбором пути проекта
+#### Virtual Profiles (VP) - Расширенный функционал
 - [ ] **VP наследование от Global**:
   - При создании VP копируется список серверов (включены/выключены)
   - Копируются конфиги серверов
   - Секреты наследуются (можно переопределить на уровне VP)
-- [ ] **Переключение контекста** - клик на VP меняет весь правый контент
 - [ ] **Независимость VP** - изменения в VP не влияют на Global и другие VP
-- [ ] **Удаление VP** - с подтверждением
-
-#### Архитектура секретов (уже реализовано в backend)
-```
-Global App (__app__:global:*)
-  └── Server in VP (server-id:workspace:vp-id:*)
-```
-- Global секреты доступны всем
-- Server секреты в VP переопределяют Global
 
 #### Система уведомлений (0% готово)
-- [ ] Toast компонент
+- [ ] Toast компонент (Sonner или react-hot-toast)
 - [ ] Глобальная обработка ошибок
 - [ ] Уведомления об успешных операциях
 
-#### Мелкие задачи
+#### UI Polish
 - [ ] Loading states для компонентов
-- [ ] Empty states
-- [ ] Проверить Titlebar кнопки (minimize/maximize/close)
+- [ ] Empty states (нет серверов, нет workspaces)
+- [ ] Error states
 
 ---
 
@@ -79,153 +77,106 @@ Global App (__app__:global:*)
 #### VSCode Extension (для MCP Manager)
 - [ ] Базовая структура extension
 - [ ] Подключение к MCP Manager host
-- [ ] Отображение доступных серверов
+- [ ] Отображение доступных серверов в TreeView
 - [ ] Отображение статуса серверов
 - [ ] Auto-connect при открытии проекта
+- [ ] Status bar item с количеством running серверов
 
 #### Тестирование
 - [ ] Unit тесты
 - [ ] Integration тесты
 - [ ] E2E тесты
 
+#### Документация
+- [ ] README.md для пользователей
+- [ ] API документация
+- [ ] Инструкция по созданию MCP серверов
+
 ---
 
-## API для VSCode Extension
+## Что сделано сегодня
 
-### Подключение к Virtual Profile по пути
+### 1. System Tray
+- Закрытие окна (X) сворачивает в трей, не закрывает приложение
+- Quit из меню трея - полный выход с корректной остановкой всех процессов
+- Динамический tooltip и меню показывают количество running серверов
+- Double-click на иконке трея открывает окно
+
+### 2. Graceful Shutdown
+- `performQuit()` - асинхронная функция полной очистки
+- `mcpHost.stop()` останавливает все MCP серверы через `processManager.stopAll()`
+- 10 секунд timeout на graceful shutdown
+- `forceKillChildProcesses()` - safety net для Windows (wmic + taskkill)
+
+### 3. About Modal
+- Версия приложения
+- Описание с ссылкой на @tscodex/mcp-sdk
+- Ссылка на официальный сайт: https://tscodex.com/mcp-manager
+- Ссылка на example server: @tscodex/mcp-server-example
+- Ссылка на все пакеты: npm search @tscodex
+- Автор: unbywyd (unbywyd.com)
+- Компания: WebTo Pro (webto.pro)
+
+### 4. Source Label для Workspaces
+- Добавлено поле `sourceLabel` в WorkspaceConfig
+- API `/api/sessions/connect` принимает `sourceLabel`
+- API `/api/workspaces` принимает `sourceLabel`
+- Sidebar показывает sourceLabel (e.g., "Cursor") вместо "API"
+
+### 5. Workspace Reset to Global
+- Новый endpoint `POST /api/workspaces/:id/reset` - сброс настроек workspace к Global
+- Кнопка "Reset to Global" в меню workspace (Sidebar)
+- Очищает все переопределения конфигураций серверов для workspace
+- `WorkspaceStore.clearAllServerConfigs()` - очистка всех server configs
+
+### 6. UX Improvements
+- **Loading states**: Добавлены спиннеры с сообщениями во всех компонентах:
+  - `ServerConfigEditor` - "Loading configuration..."
+  - `ServerList` - "Loading servers..."
+  - `SecretsView` - "Loading secrets..."
+  - `ServerSecretsManager` - "Loading secrets..."
+- **Fix validation flash**: Валидация в `ServerConfigEditor` не запускается пока идет загрузка (убрано мигание красных ошибок)
+
+---
+
+## API для IDE Extensions
+
+### Подключение с идентификацией клиента
 
 ```typescript
-// 1. Проверить существует ли VP (опционально)
-const checkResponse = await fetch(
-  `http://127.0.0.1:4040/api/workspaces/by-path?path=${encodeURIComponent(projectPath)}`
-);
-const { exists, workspace } = await checkResponse.json();
-
-// 2. Подключиться (создаст VP если не существует)
+// Подключиться с указанием клиента
 const connectResponse = await fetch('http://127.0.0.1:4040/api/sessions/connect', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
-    projectRoot: projectPath,        // Путь к проекту
-    clientType: 'vscode',            // или 'cursor'
-    clientInstanceId: vscodeWindowId // уникальный ID окна
+    projectRoot: '/path/to/project',
+    clientType: 'cursor',           // 'cursor' | 'vscode' | 'api'
+    clientInstanceId: 'unique-id',
+    sourceLabel: 'Cursor'           // NEW: Human-readable name
   })
 });
 
 const { sessionId, workspaceId, mcpServers } = await connectResponse.json();
-// mcpServers = { "server-id": "http://127.0.0.1:4040/mcp/server-id/workspace-id" }
+```
 
-// 3. Поддерживать сессию (каждые 30 сек)
-setInterval(async () => {
-  await fetch('http://127.0.0.1:4040/api/sessions/ping', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sessionId })
-  });
-}, 30000);
+### Создание workspace через API
 
-// 4. Отключиться при закрытии
-await fetch('http://127.0.0.1:4040/api/sessions/disconnect', {
+```typescript
+const response = await fetch('http://127.0.0.1:4040/api/workspaces', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ sessionId })
+  body: JSON.stringify({
+    label: 'my-project',
+    projectRoot: '/path/to/project',
+    source: 'api',
+    sourceLabel: 'Cursor'  // NEW: Показывается в UI
+  })
 });
 ```
 
-### Получение информации о серверах
-
-```typescript
-// Список всех серверов
-const servers = await fetch('http://127.0.0.1:4040/api/servers').then(r => r.json());
-
-// Список workspaces
-const workspaces = await fetch('http://127.0.0.1:4040/api/workspaces').then(r => r.json());
-
-// WebSocket для real-time обновлений
-const ws = new WebSocket('ws://127.0.0.1:4040/events');
-ws.onmessage = (event) => {
-  const { type, data } = JSON.parse(event.data);
-  // type: 'server-started', 'server-stopped', 'workspace-created', etc.
-};
-```
-
 ---
 
-## План на завтра
-
-### Приоритет 1: VSCode Extension (Простая версия)
-
-**Цель:** Минимальный extension который:
-- Подключается к MCP Manager при старте
-- Отображает список доступных серверов в TreeView
-- Показывает статус серверов (running/stopped)
-- Автоматически создает/находит VP для текущего проекта
-
-**Задачи:**
-1. Создать базовую структуру extension в `extension/` папке
-2. Implement `activate()` - подключение к host
-3. TreeView provider для отображения серверов
-4. Status bar item с количеством running серверов
-5. WebSocket listener для real-time обновлений
-
-**НЕ делаем в простой версии:**
-- Редактирование конфигурации серверов
-- Создание/удаление серверов
-- Управление секретами
-- Запуск/остановка серверов из extension
-
-### Приоритет 2: UI Fixes (если останется время)
-
-1. **SecretsView редизайн**
-   - Global/Workspace scope индикаторы
-   - Edit/Delete кнопки
-   - "Save & Restart" кнопка
-
-2. **Toast уведомления**
-   - Sonner или react-hot-toast
-   - Интеграция с API ответами
-
----
-
-## Структура простого VSCode Extension
-
-```
-extension/
-├── package.json           # Extension manifest
-├── src/
-│   ├── extension.ts       # Entry point (activate/deactivate)
-│   ├── McpManagerClient.ts # HTTP/WS клиент к host
-│   ├── providers/
-│   │   └── ServersTreeProvider.ts  # TreeView данные
-│   └── views/
-│       └── StatusBarItem.ts # Статус бар
-└── tsconfig.json
-```
-
-### package.json (Extension manifest)
-
-```json
-{
-  "name": "mcp-manager-extension",
-  "displayName": "MCP Manager",
-  "version": "0.1.0",
-  "engines": { "vscode": "^1.85.0" },
-  "activationEvents": ["onStartupFinished"],
-  "main": "./dist/extension.js",
-  "contributes": {
-    "views": {
-      "explorer": [{
-        "id": "mcpServers",
-        "name": "MCP Servers"
-      }]
-    }
-  }
-}
-```
-
----
-
-## Архитектура взаимодействия
+## Архитектура
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -236,37 +187,35 @@ extension/
 │  │  - WebSocket /events                                  │  │
 │  │  - MCP Gateway /mcp/:serverId/:workspaceId           │  │
 │  └───────────────────────────────────────────────────────┘  │
+│                                                              │
+│  System Tray: Shows running servers count                   │
+│  Quit → stopAll() → forceKillChildProcesses() → exit       │
 └─────────────────────────────────────────────────────────────┘
                               ↑
                               │ HTTP + WebSocket
                               ↓
 ┌─────────────────────────────────────────────────────────────┐
 │                VSCode/Cursor Extension                       │
-│  1. При старте: POST /api/sessions/connect                  │
+│  1. При старте: POST /api/sessions/connect + sourceLabel    │
 │  2. Получает: sessionId + mcpServers endpoints              │
 │  3. Слушает: WebSocket /events для обновлений               │
-│  4. Отображает: TreeView с серверами                        │
+│  4. UI показывает: "Cursor" в списке workspaces            │
 │  5. При закрытии: POST /api/sessions/disconnect             │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Заметки
+## Приоритеты на будущее
 
-### Virtual Profile (VP) Flow
+### Высокий приоритет
+1. **VSCode Extension** - базовая версия для тестирования интеграции
+2. **Toast уведомления** - feedback для пользователя
 
-1. **VSCode открывает проект** `/Users/dev/my-project`
-2. **Extension активируется** и вызывает `/api/sessions/connect`
-3. **Host проверяет** `findByProjectRoot('/Users/dev/my-project')`
-4. **Если VP не найден** - создается новый с label = 'my-project'
-5. **Host возвращает** workspaceId + список MCP серверов
-6. **Extension отображает** серверы в TreeView
+### Средний приоритет
+3. **VP наследование** - копирование конфигов при создании workspace
+4. **Loading/Empty states** - улучшение UX
 
-### Нормализация путей
-
-`WorkspaceStore.normalizePath()` приводит пути к единому формату:
-- `\` → `/`
-- Lowercase
-
-Это обеспечивает корректное сравнение путей на Windows/Mac/Linux.
+### Низкий приоритет
+5. **Тесты** - unit и integration
+6. **Документация** - README, API docs

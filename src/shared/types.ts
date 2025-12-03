@@ -85,6 +85,9 @@ export interface ServerInfo extends ServerTemplate {
   resourcesCount?: number;
   promptsCount?: number;
   authStatus?: 'authorized' | 'unauthorized' | 'unknown';
+  // Update info (populated by check-update endpoint)
+  latestVersion?: string;
+  hasUpdate?: boolean;
 }
 
 // ============================================================================
@@ -99,6 +102,8 @@ export interface WorkspaceConfig {
   projectRoot: string;
   source: WorkspaceSource;
   sourceInstanceId?: string;
+  /** Human-readable label for the source (e.g., "Cursor", "VS Code", "Claude Code") */
+  sourceLabel?: string;
 
   createdAt: number;
   updatedAt: number;
