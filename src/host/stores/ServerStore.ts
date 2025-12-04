@@ -83,6 +83,7 @@ export class ServerStore {
     packageName?: string;
     packageVersion?: string;
     localPath?: string;
+    entryPoint?: string;
     displayName?: string;
     description?: string;
     packageInfo?: {
@@ -100,6 +101,7 @@ export class ServerStore {
       packageName: data.packageName,
       packageVersion: data.packageVersion,
       localPath: data.localPath,
+      entryPoint: data.entryPoint,
       displayName: data.displayName || data.packageName || 'Unknown Server',
       description: data.description,
       defaultConfig: {},

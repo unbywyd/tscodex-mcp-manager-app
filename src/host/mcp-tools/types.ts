@@ -267,7 +267,8 @@ export interface UpdatePromptRequest {
 export interface CreateResourceRequest {
   name: string;
   description: string;
-  uri: string;
+  /** URI is auto-generated from name as mcp-tools://{name} */
+  uri?: string;
   mimeType?: string;
   executor: ResourceExecutor;
   enabled?: boolean;

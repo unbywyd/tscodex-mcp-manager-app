@@ -108,19 +108,33 @@ async function handleGatewayRequest(
     // Proxy request to actual MCP server
     const targetUrl = `http://127.0.0.1:${instance.port}${DEFAULT_MCP_PATH}${subPath}`;
 
+    // Build headers including context headers from workspace config
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      // Standard MCP SDK headers for per-request context
+      'X-MCP-Workspace-Id': workspaceId,
+      'X-MCP-Project-Root': workspace?.projectRoot || '',
+      // Legacy headers for backward compatibility
+      'X-Workspace-Id': workspaceId,
+      'X-Project-Root': workspace?.projectRoot || '',
+      'X-Server-Id': serverId,
+    };
+
+    // Add custom context headers from workspace config (X-MCP-CTX-*)
+    const contextHeaders = wsConfig?.contextHeaders;
+    if (contextHeaders) {
+      for (const [key, value] of Object.entries(contextHeaders)) {
+        if (value) {
+          // Add with X-MCP-CTX- prefix
+          headers[`X-MCP-CTX-${key}`] = value;
+        }
+      }
+    }
+
     try {
       const response = await fetch(targetUrl, {
         method: req.method || 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          // Standard MCP SDK headers for per-request context
-          'X-MCP-Workspace-Id': workspaceId,
-          'X-MCP-Project-Root': workspace?.projectRoot || '',
-          // Legacy headers for backward compatibility
-          'X-Workspace-Id': workspaceId,
-          'X-Project-Root': workspace?.projectRoot || '',
-          'X-Server-Id': serverId,
-        },
+        headers,
         body: ['POST', 'PUT', 'PATCH'].includes(req.method || '')
           ? JSON.stringify(req.body)
           : undefined,

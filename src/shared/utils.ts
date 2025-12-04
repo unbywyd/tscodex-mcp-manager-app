@@ -11,8 +11,23 @@ export function getSpawnCommand(
   installType: InstallType,
   packageName?: string,
   packageVersion?: string,
-  localPath?: string
+  localPath?: string,
+  entryPoint?: string
 ): { command: string; args: string[] } {
+  // For npm installed packages, use the entry point directly
+  if (installType === 'npm') {
+    if (!entryPoint) {
+      throw new Error(`[getSpawnCommand] entryPoint is required for npm install type`);
+    }
+    return { command: 'node', args: [entryPoint] };
+  }
+
+  // For package runners (npx, pnpx, etc.)
+  // packageVersion should always be set during server creation
+  // fallback to 'latest' only for legacy servers without fixed version
+  if (!packageVersion && packageName) {
+    console.warn(`[getSpawnCommand] No packageVersion for ${packageName}, using 'latest' (this may slow down startup)`);
+  }
   const version = packageVersion || 'latest';
   const pkg = packageName ? `${packageName}@${version}` : '';
 
@@ -27,6 +42,8 @@ export function getSpawnCommand(
       return { command: 'bunx', args: [pkg] };
     case 'local':
       return { command: 'node', args: [localPath!] };
+    default:
+      throw new Error(`Unknown install type: ${installType}`);
   }
 }
 

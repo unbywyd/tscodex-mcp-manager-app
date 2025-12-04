@@ -72,15 +72,16 @@ export async function checkForUpdate(
   packageName: string,
   currentVersion: string | undefined
 ): Promise<{ hasUpdate: boolean; latestVersion: string | null; currentVersion: string | null }> {
-  // Skip check for 'latest' - it's always up to date by definition
-  if (!currentVersion || currentVersion === 'latest') {
-    return { hasUpdate: false, latestVersion: null, currentVersion: null };
-  }
-
+  // Always try to get latest version from registry
   const latestVersion = await getLatestVersion(packageName);
 
   if (!latestVersion) {
-    return { hasUpdate: false, latestVersion: null, currentVersion };
+    return { hasUpdate: false, latestVersion: null, currentVersion: currentVersion || null };
+  }
+
+  // If no current version or 'latest'/'unknown', consider it needs update
+  if (!currentVersion || currentVersion === 'latest' || currentVersion === 'unknown') {
+    return { hasUpdate: true, latestVersion, currentVersion: currentVersion || null };
   }
 
   const hasUpdate = compareSemver(latestVersion, currentVersion) > 0;

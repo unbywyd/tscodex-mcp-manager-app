@@ -2,11 +2,12 @@
  * Tools List - Displays list of dynamic tools
  */
 
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { Wrench, Play, Pause, Edit, Trash2, Globe, Code, FileText, Plus, Upload, Download } from 'lucide-react';
 import { useMcpToolsStore } from '../../stores/mcpToolsStore';
 import type { DynamicTool } from '../../../host/mcp-tools/types';
 import { cn } from '../../lib/utils';
+import { ConfirmDialog, InfoDialog, ChoiceDialog } from '../ui/dialogs';
 
 function getExecutorIcon(type: string) {
   switch (type) {
@@ -35,10 +36,58 @@ function getExecutorLabel(type: string) {
 }
 
 export function ToolsList() {
-  const { tools, toggleTool, deleteTool, openEditor, exportData, importData, fetchAll } = useMcpToolsStore();
+  const {
+    tools,
+    toggleTool,
+    deleteTool,
+    openEditor,
+    importData,
+    selectedToolIds,
+    toggleToolSelection,
+    selectAllTools,
+    clearToolSelection,
+    exportSelectedTools,
+  } = useMcpToolsStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const selectAllCheckboxRef = useRef<HTMLInputElement>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+
+  // Dialog states
+  const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; tool: DynamicTool | null }>({
+    open: false,
+    tool: null,
+  });
+  const [importStrategyDialog, setImportStrategyDialog] = useState<{
+    open: boolean;
+    data: any;
+  }>({ open: false, data: null });
+  const [infoDialog, setInfoDialog] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+    variant: 'info' | 'success' | 'error';
+  }>({ open: false, title: '', message: '', variant: 'info' });
+
+  // Selection state
+  const selectedCount = selectedToolIds.size;
+  const allSelected = tools.length > 0 && selectedCount === tools.length;
+  const someSelected = selectedCount > 0 && selectedCount < tools.length;
+
+  // Set indeterminate state for select all checkbox
+  useEffect(() => {
+    if (selectAllCheckboxRef.current) {
+      selectAllCheckboxRef.current.indeterminate = someSelected;
+    }
+  }, [someSelected]);
+
+  const handleSelectAll = () => {
+    if (allSelected) {
+      clearToolSelection();
+    } else {
+      selectAllTools();
+    }
+  };
 
   const handleToggle = async (id: string) => {
     try {
@@ -48,14 +97,23 @@ export function ToolsList() {
     }
   };
 
-  const handleDelete = async (tool: DynamicTool) => {
-    if (!confirm(`Are you sure you want to delete "${tool.name}"?`)) {
-      return;
-    }
+  const handleDelete = (tool: DynamicTool) => {
+    setDeleteDialog({ open: true, tool });
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteDialog.tool) return;
     try {
-      await deleteTool(tool.id);
+      await deleteTool(deleteDialog.tool.id);
+      setDeleteDialog({ open: false, tool: null });
     } catch (error) {
       console.error('Failed to delete tool:', error);
+      setInfoDialog({
+        open: true,
+        title: 'Delete Failed',
+        message: (error as Error).message,
+        variant: 'error',
+      });
     }
   };
 
@@ -64,9 +122,11 @@ export function ToolsList() {
   };
 
   const handleExport = async () => {
+    if (selectedCount === 0) return;
+
     setIsExporting(true);
     try {
-      const data = await exportData(['tools']);
+      const data = await exportSelectedTools();
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -76,9 +136,16 @@ export function ToolsList() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+      // Clear selection after export
+      clearToolSelection();
     } catch (error) {
       console.error('Export failed:', error);
-      alert('Export failed: ' + (error as Error).message);
+      setInfoDialog({
+        open: true,
+        title: 'Export Failed',
+        message: (error as Error).message,
+        variant: 'error',
+      });
     } finally {
       setIsExporting(false);
     }
@@ -92,14 +159,32 @@ export function ToolsList() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setIsImporting(true);
     try {
       const text = await file.text();
       const data = JSON.parse(text);
+      setImportStrategyDialog({ open: true, data });
+    } catch (error) {
+      console.error('Import failed:', error);
+      setInfoDialog({
+        open: true,
+        title: 'Import Failed',
+        message: 'Failed to parse JSON file: ' + (error as Error).message,
+        variant: 'error',
+      });
+    } finally {
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
 
-      const strategy = window.confirm(
-        'How to handle conflicts?\n\nOK = Replace existing items\nCancel = Skip duplicates'
-      ) ? 'replace' : 'skip';
+  const handleImportStrategy = async (strategy: string) => {
+    if (!importStrategyDialog.data) return;
+
+    setImportStrategyDialog({ open: false, data: null });
+    setIsImporting(true);
+    try {
+      const data = importStrategyDialog.data;
 
       const result = await importData(data, {
         conflictStrategy: strategy as 'replace' | 'skip',
@@ -115,15 +200,22 @@ export function ToolsList() {
       if (result.errors.length) {
         message += `\nErrors: ${result.errors.length}`;
       }
-      alert(message);
+      setInfoDialog({
+        open: true,
+        title: 'Import Completed',
+        message,
+        variant: result.errors.length > 0 ? 'error' : 'success',
+      });
     } catch (error) {
       console.error('Import failed:', error);
-      alert('Import failed: ' + (error as Error).message);
+      setInfoDialog({
+        open: true,
+        title: 'Import Failed',
+        message: (error as Error).message,
+        variant: 'error',
+      });
     } finally {
       setIsImporting(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
     }
   };
 
@@ -131,7 +223,21 @@ export function ToolsList() {
     <div className="space-y-4">
       {/* Header with actions */}
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-medium text-gray-400">Tools</h2>
+        <div className="flex items-center gap-3">
+          {/* Select All checkbox */}
+          {tools.length > 0 && (
+            <label className="flex items-center cursor-pointer" title={allSelected ? 'Deselect all' : 'Select all'}>
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={handleSelectAll}
+                className="form-checkbox"
+                ref={selectAllCheckboxRef}
+              />
+            </label>
+          )}
+          <h2 className="text-sm font-medium text-gray-400">Tools</h2>
+        </div>
         <div className="flex items-center gap-2">
           {/* Hidden file input for import */}
           <input
@@ -153,20 +259,20 @@ export function ToolsList() {
             {isImporting ? 'Importing...' : 'Import'}
           </button>
 
-          {/* Export button */}
+          {/* Export button - only enabled when items selected */}
           <button
             onClick={handleExport}
-            disabled={isExporting || tools.length === 0}
+            disabled={isExporting || selectedCount === 0}
             className={cn(
               'flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors',
-              tools.length > 0
+              selectedCount > 0
                 ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                 : 'bg-gray-800 text-gray-600 cursor-not-allowed'
             )}
-            title="Export tools to file"
+            title={selectedCount > 0 ? `Export ${selectedCount} selected` : 'Select items to export'}
           >
             <Download size={12} />
-            {isExporting ? 'Exporting...' : 'Export'}
+            {isExporting ? 'Exporting...' : selectedCount > 0 ? `Export (${selectedCount})` : 'Export'}
           </button>
 
           {/* Add button - white bg, black text */}
@@ -195,6 +301,7 @@ export function ToolsList() {
       {tools.map((tool) => {
         const ExecutorIcon = getExecutorIcon(tool.executor.type);
         const paramCount = Object.keys(tool.inputSchema.properties || {}).length;
+        const isSelected = selectedToolIds.has(tool.id);
 
         return (
           <div
@@ -203,9 +310,20 @@ export function ToolsList() {
               'flex items-center gap-4 p-4 rounded-lg border transition-colors',
               tool.enabled
                 ? 'bg-gray-800/50 border-gray-700 hover:border-gray-600'
-                : 'bg-gray-800/30 border-gray-700/50 opacity-60'
+                : 'bg-gray-800/30 border-gray-700/50 opacity-60',
+              isSelected && 'border-white/50 bg-gray-800/70'
             )}
           >
+            {/* Selection checkbox */}
+            <label className="flex items-center cursor-pointer flex-shrink-0">
+              <input
+                type="checkbox"
+                checked={isSelected}
+                onChange={() => toggleToolSelection(tool.id)}
+                className="form-checkbox"
+              />
+            </label>
+
             {/* Status indicator */}
             <div
               className={cn(
@@ -274,6 +392,40 @@ export function ToolsList() {
       })}
         </div>
       )}
+
+      {/* Delete confirmation dialog */}
+      <ConfirmDialog
+        open={deleteDialog.open}
+        title="Delete Tool"
+        description={`Are you sure you want to delete "${deleteDialog.tool?.name}"? This action cannot be undone.`}
+        confirmText="Delete"
+        cancelText="Cancel"
+        variant="danger"
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteDialog({ open: false, tool: null })}
+      />
+
+      {/* Import strategy dialog */}
+      <ChoiceDialog
+        open={importStrategyDialog.open}
+        title="Import Strategy"
+        description="How to handle conflicts when importing tools?"
+        choices={[
+          { label: 'Replace existing items', value: 'replace', variant: 'primary' },
+          { label: 'Skip duplicates', value: 'skip' },
+        ]}
+        onChoose={handleImportStrategy}
+        onCancel={() => setImportStrategyDialog({ open: false, data: null })}
+      />
+
+      {/* Info dialog */}
+      <InfoDialog
+        open={infoDialog.open}
+        title={infoDialog.title}
+        description={infoDialog.message}
+        variant={infoDialog.variant}
+        onClose={() => setInfoDialog({ open: false, title: '', message: '', variant: 'info' })}
+      />
     </div>
   );
 }

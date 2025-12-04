@@ -233,10 +233,14 @@ export function createWorkspaceRoutes(router: Router, ctx: RouteContext): void {
 
       res.json({
         success: true,
-        config: mergedConfig,
+        config: {
+          ...mergedConfig,
+          contextHeaders: wsConfig?.contextHeaders || {},
+        },
         schema: server.configSchema,
         defaultConfig: server.defaultConfig,
         workspaceOverride: wsConfig?.configOverride || {},
+        contextHeaders: wsConfig?.contextHeaders || {},
         isGlobal,
       });
     } catch (error) {
@@ -257,8 +261,9 @@ export function createWorkspaceRoutes(router: Router, ctx: RouteContext): void {
         enabled?: boolean;
         configOverride?: Record<string, unknown>;
         secretKeys?: string[];
+        contextHeaders?: Record<string, string>;
       };
-      const { enabled, configOverride, secretKeys } = body;
+      const { enabled, configOverride, secretKeys, contextHeaders } = body;
 
       if (isGlobal) {
         // For global, update the server template's defaultConfig
@@ -291,10 +296,14 @@ export function createWorkspaceRoutes(router: Router, ctx: RouteContext): void {
           return;
         }
 
+        // Get existing config and merge with updates
+        const existingConfig = ctx.workspaceStore.getServerConfig(workspaceId, serverId);
         await ctx.workspaceStore.setServerConfig(workspaceId, serverId, {
-          enabled: enabled ?? true,
-          configOverride,
-          secretKeys,
+          enabled: enabled ?? existingConfig?.enabled ?? true,
+          configOverride: configOverride ?? existingConfig?.configOverride,
+          secretKeys: secretKeys ?? existingConfig?.secretKeys,
+          contextHeaders: contextHeaders ?? existingConfig?.contextHeaders,
+          permissionsOverride: existingConfig?.permissionsOverride,
         });
 
         // Emit event so UI updates

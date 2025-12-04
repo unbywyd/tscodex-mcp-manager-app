@@ -8,6 +8,7 @@ import type { InstallType, ServerPermissions } from '../../../shared/types';
 import { DEFAULT_HOST_PORT, DEFAULT_SERVER_PERMISSIONS } from '../../../shared/types';
 import { checkForUpdate, clearPackageCache } from '../../managers/PackageVersionChecker';
 import { readLocalPackageJson, fetchNpmPackageMetadata } from '../../managers/PackageMetadataReader';
+import { getPackageInstaller } from '../../managers/PackageInstaller';
 
 export function createServerRoutes(router: Router, ctx: RouteContext): void {
   // List all servers
@@ -47,16 +48,16 @@ export function createServerRoutes(router: Router, ctx: RouteContext): void {
       });
 
       // Build mcpEndpoints for the workspace (if provided)
-      // Only servers explicitly enabled for workspace get a proxy URL
+      // Servers are enabled by default unless explicitly disabled
       let mcpEndpoints: Record<string, string> | undefined;
       if (workspaceId) {
         mcpEndpoints = {};
         for (const server of servers) {
-          // Check if server is explicitly enabled for this workspace
+          // Check if server is explicitly disabled for this workspace
           const wsConfig = ctx.workspaceStore.getServerConfig(workspaceId, server.id);
-          // Server must be explicitly enabled (wsConfig.enabled === true)
-          // If no config exists or enabled is false/undefined, server is disabled
-          if (!wsConfig || wsConfig.enabled !== true) {
+          // Server is enabled by default - only skip if explicitly disabled (enabled === false)
+          // This matches frontend behavior in appStore.isServerEnabledForWorkspace
+          if (wsConfig?.enabled === false) {
             continue;
           }
           // Build proxy URL
@@ -103,8 +104,9 @@ export function createServerRoutes(router: Router, ctx: RouteContext): void {
         packageName?: string;
         packageVersion?: string;
         localPath?: string;
+        entryPoint?: string;
       };
-      const { installType, packageName, packageVersion, localPath } = body;
+      const { installType, packageName, packageVersion, localPath, entryPoint } = body;
 
       if (!installType) {
         res.status(400).json({
@@ -114,7 +116,7 @@ export function createServerRoutes(router: Router, ctx: RouteContext): void {
         return;
       }
 
-      const validTypes: InstallType[] = ['npx', 'pnpx', 'yarn', 'bunx', 'local'];
+      const validTypes: InstallType[] = ['npm', 'npx', 'pnpx', 'yarn', 'bunx', 'local'];
       if (!validTypes.includes(installType)) {
         res.status(400).json({
           success: false,
@@ -131,10 +133,18 @@ export function createServerRoutes(router: Router, ctx: RouteContext): void {
         return;
       }
 
+      if (installType === 'npm' && !entryPoint) {
+        res.status(400).json({
+          success: false,
+          error: 'entryPoint is required for npm install type',
+        });
+        return;
+      }
+
       if (installType !== 'local' && !packageName) {
         res.status(400).json({
           success: false,
-          error: 'packageName is required for package runner install types',
+          error: 'packageName is required for package install types',
         });
         return;
       }
@@ -147,11 +157,21 @@ export function createServerRoutes(router: Router, ctx: RouteContext): void {
         metadata = await fetchNpmPackageMetadata(packageName);
       }
 
+      // Use provided packageVersion, or fall back to version from metadata
+      const resolvedPackageVersion = packageVersion || metadata?.version;
+      console.log(`[ServerRoutes] Creating server:`, {
+        packageName,
+        providedVersion: packageVersion,
+        metadataVersion: metadata?.version,
+        resolvedVersion: resolvedPackageVersion,
+      });
+
       const server = await ctx.serverStore.create({
         installType,
         packageName,
-        packageVersion,
+        packageVersion: resolvedPackageVersion,
         localPath,
+        entryPoint,
         // Use metadata if available
         displayName: metadata?.name,
         description: metadata?.description,
@@ -174,24 +194,30 @@ export function createServerRoutes(router: Router, ctx: RouteContext): void {
         displayName?: string;
         description?: string;
         version?: string;
+        packageVersion?: string;
         defaultConfig?: Record<string, unknown>;
         configSchema?: Record<string, unknown>;
         toolsCount?: number;
         resourcesCount?: number;
         promptsCount?: number;
+        contextHeaders?: string[];
       };
-      const { displayName, description, version, defaultConfig, configSchema, toolsCount, resourcesCount, promptsCount } = body;
+      const { displayName, description, version, packageVersion, defaultConfig, configSchema, toolsCount, resourcesCount, promptsCount, contextHeaders } = body;
 
-      const server = await ctx.serverStore.update(req.params.id, {
-        displayName,
-        description,
-        version,
-        defaultConfig,
-        configSchema,
-        toolsCount,
-        resourcesCount,
-        promptsCount,
-      });
+      // Filter undefined values to avoid overwriting existing data
+      const updateData: Partial<typeof body> = {};
+      if (displayName !== undefined) updateData.displayName = displayName;
+      if (description !== undefined) updateData.description = description;
+      if (version !== undefined) updateData.version = version;
+      if (packageVersion !== undefined) updateData.packageVersion = packageVersion;
+      if (defaultConfig !== undefined) updateData.defaultConfig = defaultConfig;
+      if (configSchema !== undefined) updateData.configSchema = configSchema;
+      if (toolsCount !== undefined) updateData.toolsCount = toolsCount;
+      if (resourcesCount !== undefined) updateData.resourcesCount = resourcesCount;
+      if (promptsCount !== undefined) updateData.promptsCount = promptsCount;
+      if (contextHeaders !== undefined) updateData.contextHeaders = contextHeaders;
+
+      const server = await ctx.serverStore.update(req.params.id, updateData);
 
       if (!server) {
         res.status(404).json({
@@ -307,6 +333,85 @@ export function createServerRoutes(router: Router, ctx: RouteContext): void {
     }
   });
 
+  // Get package version from npm registry
+  router.get('/api/packages/:packageName/version', async (req: Request, res: Response) => {
+    try {
+      const packageName = decodeURIComponent(req.params.packageName);
+
+      if (!packageName) {
+        res.status(400).json({
+          success: false,
+          error: 'packageName is required',
+        });
+        return;
+      }
+
+      const metadata = await fetchNpmPackageMetadata(packageName);
+
+      if (!metadata || !metadata.version) {
+        res.status(404).json({
+          success: false,
+          error: 'Package not found or version unavailable',
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        packageName,
+        version: metadata.version,
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  });
+
+  // Install package via npm to local app directory
+  router.post('/api/packages/install', async (req: Request, res: Response) => {
+    try {
+      const body = req.body as {
+        packageName: string;
+        version?: string;
+      };
+      const { packageName, version } = body;
+
+      if (!packageName) {
+        res.status(400).json({
+          success: false,
+          error: 'packageName is required',
+        });
+        return;
+      }
+
+      const installer = getPackageInstaller();
+      const result = await installer.install(packageName, version);
+
+      if (!result.success) {
+        res.status(500).json({
+          success: false,
+          error: result.error || 'Installation failed',
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        packageName,
+        version: result.version,
+        entryPoint: result.entryPoint,
+        packagePath: result.packagePath,
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  });
+
   // Check for package updates
   router.get('/api/servers/:id/check-update', async (req: Request, res: Response) => {
     try {
@@ -320,7 +425,7 @@ export function createServerRoutes(router: Router, ctx: RouteContext): void {
         return;
       }
 
-      // Only check for npm-based servers with fixed version
+      // Only check for npm-based servers
       if (server.installType === 'local' || !server.packageName) {
         res.json({
           success: true,
@@ -332,25 +437,14 @@ export function createServerRoutes(router: Router, ctx: RouteContext): void {
         return;
       }
 
-      // Skip if using 'latest' - always up to date
-      if (!server.packageVersion || server.packageVersion === 'latest') {
-        res.json({
-          success: true,
-          hasUpdate: false,
-          latestVersion: null,
-          currentVersion: 'latest',
-          message: 'Server is configured to use latest version',
-        });
-        return;
-      }
-
+      // Check for updates - checkForUpdate now handles all cases including unknown/latest
       const updateInfo = await checkForUpdate(server.packageName, server.packageVersion);
 
       res.json({
         success: true,
         hasUpdate: updateInfo.hasUpdate,
         latestVersion: updateInfo.latestVersion,
-        currentVersion: updateInfo.currentVersion,
+        currentVersion: updateInfo.currentVersion || 'unknown',
       });
     } catch (error) {
       res.status(500).json({
@@ -411,11 +505,32 @@ export function createServerRoutes(router: Router, ctx: RouteContext): void {
         }
       }
 
-      // Update version in store
       const previousVersion = server.packageVersion;
-      await ctx.serverStore.update(server.id, {
-        packageVersion: targetVersion,
-      });
+
+      // For npm install type, actually reinstall the package
+      if (server.installType === 'npm') {
+        const installer = getPackageInstaller();
+        const result = await installer.update(server.packageName, targetVersion);
+
+        if (!result.success) {
+          res.status(500).json({
+            success: false,
+            error: result.error || 'Failed to update package',
+          });
+          return;
+        }
+
+        // Update version and entryPoint in store
+        await ctx.serverStore.update(server.id, {
+          packageVersion: result.version,
+          entryPoint: result.entryPoint,
+        });
+      } else {
+        // For npx/pnpx/yarn/bunx, just update the version in store
+        await ctx.serverStore.update(server.id, {
+          packageVersion: targetVersion,
+        });
+      }
 
       // Clear cache for this package to ensure fresh check next time
       clearPackageCache(server.packageName);

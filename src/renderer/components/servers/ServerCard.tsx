@@ -41,6 +41,7 @@ import {
   AlertDialogTitle,
 } from '../ui/alert-dialog';
 import { WorkspaceServerInfoModal } from './WorkspaceServerInfoModal';
+import { UpdateCheckModal } from './UpdateCheckModal';
 
 interface ServerCardProps {
   server: ServerInfo;
@@ -63,6 +64,7 @@ export function ServerCard({ server, workspaceId, onOpenDetails }: ServerCardPro
   const [isUpdating, setIsUpdating] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showWorkspaceInfoModal, setShowWorkspaceInfoModal] = useState(false);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
 
   // Check if server can be updated (has fixed version, not local, has update available)
   const canUpdate = server.hasUpdate && server.installType !== 'local' && server.packageVersion && server.packageVersion !== 'latest';
@@ -167,8 +169,11 @@ export function ServerCard({ server, workspaceId, onOpenDetails }: ServerCardPro
 
   const handleCardClick = () => {
     if (!isGlobalWorkspace) {
-      // From workspace view, show info modal first
-      setShowWorkspaceInfoModal(true);
+      // From workspace view, show info modal first only if server is enabled and running
+      if (server.status === 'running') {
+        setShowWorkspaceInfoModal(true);
+      }
+      // If server is disabled or not running, do nothing
     } else {
       onOpenDetails?.(server.id);
     }
@@ -353,6 +358,12 @@ export function ServerCard({ server, workspaceId, onOpenDetails }: ServerCardPro
                       <Info className="w-4 h-4 mr-2" />
                       Details
                     </DropdownMenuItem>
+                    {server.installType !== 'local' && (
+                      <DropdownMenuItem onClick={() => setShowUpdateModal(true)}>
+                        <ArrowUpCircle className="w-4 h-4 mr-2" />
+                        Check for Updates
+                      </DropdownMenuItem>
+                    )}
                     {canUpdate && (
                       <>
                         <DropdownMenuSeparator />
@@ -454,6 +465,14 @@ export function ServerCard({ server, workspaceId, onOpenDetails }: ServerCardPro
           workspaceId={workspaceId}
           onClose={() => setShowWorkspaceInfoModal(false)}
           onGoToServer={handleGoToServerFromModal}
+        />
+      )}
+
+      {/* Update check modal */}
+      {showUpdateModal && (
+        <UpdateCheckModal
+          server={server}
+          onClose={() => setShowUpdateModal(false)}
         />
       )}
     </>

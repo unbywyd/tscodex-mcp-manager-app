@@ -12,6 +12,7 @@ import { CodeEditor } from '../ui/code-editor';
 import { JsonEditor } from '../ui/json-editor';
 import { RichTextEditor } from '../ui/rich-text-editor';
 import { MarkdownEditor } from '../ui/markdown-editor';
+import { InfoDialog } from '../ui/dialogs';
 
 interface ResourceEditorProps {
   resource?: DynamicResource;
@@ -25,8 +26,10 @@ export function ResourceEditor({ resource, onClose }: ResourceEditorProps) {
   const [name, setName] = useState(resource?.name || '');
   const [description, setDescription] = useState(resource?.description || '');
   const [enabled, setEnabled] = useState(resource?.enabled ?? true);
-  const [uri, setUri] = useState(resource?.uri || '');
   const [mimeType, setMimeType] = useState(resource?.mimeType || 'text/plain');
+
+  // Auto-generate URI from name (like SDK does)
+  const generatedUri = name ? `mcp-tools://${name}` : '';
   const [executorType, setExecutorType] = useState<'static' | 'http' | 'function'>(
     resource?.executor.type || 'static'
   );
@@ -64,6 +67,11 @@ export function ResourceEditor({ resource, onClose }: ResourceEditorProps) {
   const [staticJsonError, setStaticJsonError] = useState<string | null>(null);
   const [functionError, setFunctionError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorDialog, setErrorDialog] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+  }>({ open: false, title: '', message: '' });
 
   // Validate name on change
   useEffect(() => {
@@ -100,7 +108,7 @@ export function ResourceEditor({ resource, onClose }: ResourceEditorProps) {
   }, [functionCode, executorType, validateFunction]);
 
   const handleSubmit = async () => {
-    if (!name || nameError || !uri) return;
+    if (!name || nameError) return;
     if (executorType === 'function' && functionError) return;
 
     // Build executor
@@ -136,7 +144,6 @@ export function ResourceEditor({ resource, onClose }: ResourceEditorProps) {
         name,
         description,
         enabled,
-        uri,
         mimeType,
         executor,
       };
@@ -149,14 +156,18 @@ export function ResourceEditor({ resource, onClose }: ResourceEditorProps) {
       onClose();
     } catch (error) {
       console.error('Failed to save resource:', error);
-      alert((error as Error).message);
+      setErrorDialog({
+        open: true,
+        title: 'Save Failed',
+        message: (error as Error).message,
+      });
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const hasJsonErrors = headersJsonError || (editorMode === 'json' && staticJsonError);
-  const isValid = name && !nameError && uri && !hasJsonErrors && (executorType !== 'function' || !functionError);
+  const isValid = name && !nameError && !hasJsonErrors && (executorType !== 'function' || !functionError);
 
   return (
     <div className="flex flex-col h-full max-h-[90vh]">
@@ -185,7 +196,15 @@ export function ResourceEditor({ resource, onClose }: ResourceEditorProps) {
               <input
                 type="text"
                 value={name}
-                onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))}
+                onChange={(e) => {
+                  // Convert to snake_case valid for URI: lowercase, only a-z, 0-9, _
+                  // Must start with a letter (remove leading non-letters)
+                  const sanitized = e.target.value
+                    .toLowerCase()
+                    .replace(/[^a-z0-9_]/g, '_')
+                    .replace(/^[^a-z]+/, ''); // Remove leading non-letters
+                  setName(sanitized);
+                }}
                 placeholder="my_resource_name"
                 className={cn(
                   'w-full px-3 py-2 bg-bg-secondary border rounded-md text-white placeholder-gray-400',
@@ -222,15 +241,12 @@ export function ResourceEditor({ resource, onClose }: ResourceEditorProps) {
           <div className="flex gap-4">
             <div className="flex-1">
               <label className="block text-sm font-medium text-gray-300 mb-1">
-                URI <span className="text-red-400">*</span>
+                URI
               </label>
-              <input
-                type="text"
-                value={uri}
-                onChange={(e) => setUri(e.target.value)}
-                placeholder="custom://my-resource"
-                className="w-full px-3 py-2 bg-bg-secondary border border-border-default rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-white/50"
-              />
+              <div className="w-full px-3 py-2 bg-bg-secondary/50 border border-border-default rounded-md text-gray-400 font-mono text-sm">
+                {generatedUri || 'mcp-tools://resource_name'}
+              </div>
+              <p className="text-xs text-gray-500 mt-1">Auto-generated from name</p>
             </div>
             <div className="w-48">
               <label className="block text-sm font-medium text-gray-300 mb-1">
@@ -458,6 +474,15 @@ export function ResourceEditor({ resource, onClose }: ResourceEditorProps) {
           {resource ? 'Save' : 'Create'}
         </button>
       </div>
+
+      {/* Error dialog */}
+      <InfoDialog
+        open={errorDialog.open}
+        title={errorDialog.title}
+        description={errorDialog.message}
+        variant="error"
+        onClose={() => setErrorDialog({ open: false, title: '', message: '' })}
+      />
     </div>
   );
 }

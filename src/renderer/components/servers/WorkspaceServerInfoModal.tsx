@@ -1,6 +1,9 @@
-import { Copy, Check, ExternalLink, X, Link2, Server, Wrench, Package, MessageSquare } from 'lucide-react';
+import { Copy, Check, ExternalLink, X, Link2, Server, Wrench, Package, MessageSquare, Settings2, Info } from 'lucide-react';
 import { useState } from 'react';
 import type { ServerInfo } from '../../../shared/types';
+import { ServerContextEditor } from './ServerContextEditor';
+
+type ModalTab = 'info' | 'context';
 
 interface WorkspaceServerInfoModalProps {
   server: ServerInfo;
@@ -16,6 +19,7 @@ export function WorkspaceServerInfoModal({
   onGoToServer,
 }: WorkspaceServerInfoModalProps) {
   const [copied, setCopied] = useState(false);
+  const [activeTab, setActiveTab] = useState<ModalTab>('info');
 
   const proxyUrl = `http://127.0.0.1:4040/mcp/${server.id}/${workspaceId}`;
 
@@ -39,14 +43,16 @@ export function WorkspaceServerInfoModal({
     error: 'Error',
   };
 
+  const hasContextHeaders = server.contextHeaders && server.contextHeaders.length > 0;
+
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
       <div
-        className="bg-bg-secondary border border-border-default rounded-lg w-full max-w-lg mx-4 shadow-xl"
+        className="bg-bg-secondary border border-border-default rounded-lg w-full max-w-lg mx-4 shadow-xl flex flex-col max-h-[85vh]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-border-default">
+        <div className="flex items-center justify-between p-4 border-b border-border-default flex-shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-bg-hover flex items-center justify-center">
               <Server className="w-5 h-5 text-gray-400" />
@@ -64,72 +70,114 @@ export function WorkspaceServerInfoModal({
           </button>
         </div>
 
-        {/* Content */}
-        <div className="p-4 space-y-4">
-          {/* Description */}
-          {server.description && (
-            <p className="text-sm text-gray-400">{server.description}</p>
+        {/* Tabs (only show if server has context headers) */}
+        {hasContextHeaders && (
+          <div className="flex border-b border-border-default flex-shrink-0">
+            <button
+              onClick={() => setActiveTab('info')}
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'info'
+                  ? 'border-white text-white'
+                  : 'border-transparent text-gray-400 hover:text-white'
+              }`}
+            >
+              <Info className="w-4 h-4" />
+              Info
+            </button>
+            <button
+              onClick={() => setActiveTab('context')}
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'context'
+                  ? 'border-white text-white'
+                  : 'border-transparent text-gray-400 hover:text-white'
+              }`}
+            >
+              <Settings2 className="w-4 h-4" />
+              Context Headers
+            </button>
+          </div>
+        )}
+
+        {/* Content - scrollable */}
+        <div className="p-4 space-y-4 overflow-y-auto flex-1 min-h-0">
+          {/* Info Tab */}
+          {activeTab === 'info' && (
+            <>
+              {/* Description */}
+              {server.description && (
+                <p className="text-sm text-gray-400">{server.description}</p>
+              )}
+
+              {/* Stats */}
+              <div className="flex items-center gap-4">
+                {server.toolsCount !== undefined && (
+                  <div className="flex items-center gap-1.5 text-sm text-gray-400">
+                    <Wrench className="w-4 h-4" />
+                    <span>{server.toolsCount} tools</span>
+                  </div>
+                )}
+                {server.resourcesCount !== undefined && (
+                  <div className="flex items-center gap-1.5 text-sm text-gray-400">
+                    <Package className="w-4 h-4" />
+                    <span>{server.resourcesCount} resources</span>
+                  </div>
+                )}
+                {server.promptsCount !== undefined && (
+                  <div className="flex items-center gap-1.5 text-sm text-gray-400">
+                    <MessageSquare className="w-4 h-4" />
+                    <span>{server.promptsCount} prompts</span>
+                  </div>
+                )}
+              </div>
+
+              {/* MCP Proxy URL */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-300 flex items-center gap-2">
+                  <Link2 className="w-4 h-4" />
+                  MCP Endpoint (Workspace Proxy)
+                </label>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 text-sm text-emerald-400 bg-emerald-900/20 px-3 py-2 rounded border border-emerald-800/30 break-all">
+                    {proxyUrl}
+                  </code>
+                  <button
+                    onClick={handleCopy}
+                    className="btn-icon flex-shrink-0 h-9 w-9"
+                    title="Copy URL"
+                  >
+                    {copied ? (
+                      <Check className="w-4 h-4 text-emerald-400" />
+                    ) : (
+                      <Copy className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500">
+                  This URL routes through the MCP Gateway with workspace-specific secrets applied.
+                </p>
+              </div>
+
+              {/* Info about global */}
+              <div className="bg-bg-tertiary rounded-lg p-3 border border-border-default">
+                <p className="text-sm text-gray-400">
+                  Server configuration is managed globally. To edit settings, environment variables, or server-specific secrets, go to the global server details.
+                </p>
+              </div>
+            </>
           )}
 
-          {/* Stats */}
-          <div className="flex items-center gap-4">
-            {server.toolsCount !== undefined && (
-              <div className="flex items-center gap-1.5 text-sm text-gray-400">
-                <Wrench className="w-4 h-4" />
-                <span>{server.toolsCount} tools</span>
-              </div>
-            )}
-            {server.resourcesCount !== undefined && (
-              <div className="flex items-center gap-1.5 text-sm text-gray-400">
-                <Package className="w-4 h-4" />
-                <span>{server.resourcesCount} resources</span>
-              </div>
-            )}
-            {server.promptsCount !== undefined && (
-              <div className="flex items-center gap-1.5 text-sm text-gray-400">
-                <MessageSquare className="w-4 h-4" />
-                <span>{server.promptsCount} prompts</span>
-              </div>
-            )}
-          </div>
-
-          {/* MCP Proxy URL */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-300 flex items-center gap-2">
-              <Link2 className="w-4 h-4" />
-              MCP Endpoint (Workspace Proxy)
-            </label>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 text-sm text-emerald-400 bg-emerald-900/20 px-3 py-2 rounded border border-emerald-800/30 break-all">
-                {proxyUrl}
-              </code>
-              <button
-                onClick={handleCopy}
-                className="btn-icon flex-shrink-0 h-9 w-9"
-                title="Copy URL"
-              >
-                {copied ? (
-                  <Check className="w-4 h-4 text-emerald-400" />
-                ) : (
-                  <Copy className="w-4 h-4" />
-                )}
-              </button>
-            </div>
-            <p className="text-xs text-gray-500">
-              This URL routes through the MCP Gateway with workspace-specific secrets applied.
-            </p>
-          </div>
-
-          {/* Info about global */}
-          <div className="bg-bg-tertiary rounded-lg p-3 border border-border-default">
-            <p className="text-sm text-gray-400">
-              Server configuration is managed globally. To edit settings, environment variables, or server-specific secrets, go to the global server details.
-            </p>
-          </div>
+          {/* Context Headers Tab */}
+          {activeTab === 'context' && hasContextHeaders && (
+            <ServerContextEditor
+              serverId={server.id}
+              workspaceId={workspaceId}
+              contextHeaders={server.contextHeaders!}
+            />
+          )}
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-3 p-4 border-t border-border-default">
+        <div className="flex items-center justify-end gap-3 p-4 border-t border-border-default flex-shrink-0">
           <button onClick={onClose} className="btn btn-secondary">
             Close
           </button>

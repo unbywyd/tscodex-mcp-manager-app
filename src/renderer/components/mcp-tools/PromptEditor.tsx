@@ -8,6 +8,7 @@ import { useMcpToolsStore } from '../../stores/mcpToolsStore';
 import type { DynamicPrompt, PromptArgument } from '../../../host/mcp-tools/types';
 import { cn } from '../../lib/utils';
 import { CodeEditor } from '../ui/code-editor';
+import { InfoDialog } from '../ui/dialogs';
 
 interface PromptEditorProps {
   prompt?: DynamicPrompt;
@@ -27,6 +28,11 @@ export function PromptEditor({ prompt, onClose }: PromptEditorProps) {
   // Validation state
   const [nameError, setNameError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorDialog, setErrorDialog] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+  }>({ open: false, title: '', message: '' });
 
   // Validate name on change
   useEffect(() => {
@@ -80,7 +86,11 @@ export function PromptEditor({ prompt, onClose }: PromptEditorProps) {
       onClose();
     } catch (error) {
       console.error('Failed to save prompt:', error);
-      alert((error as Error).message);
+      setErrorDialog({
+        open: true,
+        title: 'Save Failed',
+        message: (error as Error).message,
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -292,6 +302,15 @@ export function PromptEditor({ prompt, onClose }: PromptEditorProps) {
           {prompt ? 'Save' : 'Create'}
         </button>
       </div>
+
+      {/* Error dialog */}
+      <InfoDialog
+        open={errorDialog.open}
+        title={errorDialog.title}
+        description={errorDialog.message}
+        variant="error"
+        onClose={() => setErrorDialog({ open: false, title: '', message: '' })}
+      />
     </div>
   );
 }

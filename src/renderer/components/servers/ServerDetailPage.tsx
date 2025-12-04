@@ -21,6 +21,7 @@ import {
   Globe,
   Code,
   BookOpen,
+  ArrowUpCircle,
 } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { ServerSecretsManager } from './ServerSecretsManager';
@@ -28,6 +29,7 @@ import { ServerConfigEditor } from './ServerConfigEditor';
 import { ServerPermissionsEditor } from './ServerPermissionsEditor';
 import { AuthorizationCard } from './AuthorizationCard';
 import { ReadmePage } from './ReadmePage';
+import { UpdateCheckModal } from './UpdateCheckModal';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '../ui/accordion';
 import { Alert } from '../ui/alert';
 import { CodeBlock } from '../ui/code-block';
@@ -97,6 +99,7 @@ export function ServerDetailPage({ serverId, workspaceId, onBack }: ServerDetail
   const [healthStatus, setHealthStatus] = useState<'idle' | 'checking' | 'ok' | 'error'>('idle');
   const [healthError, setHealthError] = useState<string | null>(null);
   const [showReadme, setShowReadme] = useState(false);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
 
   const server = servers.find((s) => s.id === serverId);
 
@@ -480,6 +483,16 @@ export function ServerDetailPage({ serverId, workspaceId, onBack }: ServerDetail
                       )}
                       Refresh Info
                     </button>
+                    {server.installType !== 'local' && (
+                      <button
+                        onClick={() => setShowUpdateModal(true)}
+                        className="btn btn-secondary"
+                        title="Check for package updates"
+                      >
+                        <ArrowUpCircle className="w-4 h-4 mr-2" />
+                        Check for Updates
+                      </button>
+                    )}
                   </div>
 
                   {/* Capabilities */}
@@ -868,6 +881,14 @@ export function ServerDetailPage({ serverId, workspaceId, onBack }: ServerDetail
           </div>
         )}
       </div>
+
+      {/* Update Check Modal */}
+      {showUpdateModal && (
+        <UpdateCheckModal
+          server={server}
+          onClose={() => setShowUpdateModal(false)}
+        />
+      )}
     </div>
   );
 }

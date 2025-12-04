@@ -130,7 +130,15 @@ export async function fetchNpmPackageMetadata(packageName: string): Promise<Pack
     });
 
     const pkg = JSON.parse(stdout);
-    return extractMetadata(pkg);
+    const metadata = extractMetadata(pkg);
+    console.log(`[PackageMetadataReader] Fetched metadata for ${packageName}:`, {
+      version: metadata.version,
+      name: metadata.name,
+      hasDistTags: !!pkg['dist-tags'],
+      pkgVersion: pkg.version,
+      pkgVersionType: typeof pkg.version,
+    });
+    return metadata;
   } catch (error) {
     console.error(`[PackageMetadataReader] Failed to fetch npm metadata for ${packageName}:`, error);
     return null;
@@ -174,9 +182,19 @@ function extractMetadata(pkg: Record<string, unknown>): PackageMetadata {
     packageInfo.readme = pkg.readme;
   }
 
+  // Get version - npm view --json returns dist-tags.latest for registry packages
+  // but version for local package.json
+  let version: string | undefined;
+  if (typeof pkg.version === 'string') {
+    version = pkg.version;
+  } else if (pkg['dist-tags'] && typeof pkg['dist-tags'] === 'object') {
+    const distTags = pkg['dist-tags'] as Record<string, string>;
+    version = distTags.latest;
+  }
+
   return {
     name: typeof pkg.name === 'string' ? pkg.name : undefined,
-    version: typeof pkg.version === 'string' ? pkg.version : undefined,
+    version,
     description: typeof pkg.description === 'string' ? pkg.description : undefined,
     packageInfo,
   };

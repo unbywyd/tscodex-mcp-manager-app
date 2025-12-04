@@ -8,8 +8,11 @@
 
 /**
  * Package runner type for MCP servers
+ * - 'npm': Installed via npm to local app directory (recommended, fast startup)
+ * - 'npx', 'pnpx', 'yarn', 'bunx': Run via package runner (slower, checks registry)
+ * - 'local': Local development path
  */
-export type InstallType = 'npx' | 'pnpx' | 'yarn' | 'bunx' | 'local';
+export type InstallType = 'npm' | 'npx' | 'pnpx' | 'yarn' | 'bunx' | 'local';
 
 /**
  * Package manager info
@@ -113,6 +116,12 @@ export interface ServerTemplate {
   /** Global permissions for this server (applies to all workspaces) */
   permissions?: ServerPermissions;
 
+  /**
+   * Custom context headers that server accepts per-request.
+   * Declared by SDK via contextHeaders option in getMetadata().
+   */
+  contextHeaders?: string[];
+
   createdAt: number;
   updatedAt: number;
 }
@@ -144,6 +153,12 @@ export interface ServerInfo extends ServerTemplate {
   // Update info (populated by check-update endpoint)
   latestVersion?: string;
   hasUpdate?: boolean;
+  /**
+   * Custom context headers that server accepts per-request.
+   * Declared by SDK via contextHeaders option.
+   * MCP Manager UI will show input fields for these in workspace settings.
+   */
+  contextHeaders?: string[];
 }
 
 // ============================================================================
@@ -172,6 +187,12 @@ export interface WorkspaceServerConfig {
   secretKeys?: string[];
   /** Workspace-level permission overrides (inherits from and overrides global) */
   permissionsOverride?: Partial<ServerPermissions>;
+  /**
+   * Values for custom context headers (declared by server via contextHeaders).
+   * Key is header name (e.g., 'project-id'), value is the string to send.
+   * Passed via X-MCP-CTX-{header-name} headers with each request.
+   */
+  contextHeaders?: Record<string, string>;
 }
 
 // ============================================================================
@@ -264,7 +285,19 @@ export type AppEventType =
   | 'workspace-deleted'
   | 'session-connected'
   | 'session-disconnected'
-  | 'profile-updated';
+  | 'profile-updated'
+  // MCP Tools events
+  | 'mcp-tools-enabled'
+  | 'mcp-tools-disabled'
+  | 'mcp-tools-tool-created'
+  | 'mcp-tools-tool-updated'
+  | 'mcp-tools-tool-deleted'
+  | 'mcp-tools-prompt-created'
+  | 'mcp-tools-prompt-updated'
+  | 'mcp-tools-prompt-deleted'
+  | 'mcp-tools-resource-created'
+  | 'mcp-tools-resource-updated'
+  | 'mcp-tools-resource-deleted';
 
 export interface AppEvent {
   type: AppEventType;

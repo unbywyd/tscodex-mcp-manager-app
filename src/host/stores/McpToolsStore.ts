@@ -417,13 +417,16 @@ export class McpToolsStore {
       throw new Error(nameValidation.error);
     }
 
+    // Auto-generate URI from name (like SDK does)
+    const uri = `mcp-tools://${data.name}`;
+
     const now = Date.now();
     const resource: DynamicResource = {
       id: uuid(),
       type: 'resource',
       name: data.name,
       description: data.description,
-      uri: data.uri,
+      uri,
       mimeType: data.mimeType || 'text/plain',
       executor: data.executor,
       enabled: data.enabled ?? true,
@@ -456,9 +459,14 @@ export class McpToolsStore {
       }
     }
 
+    // Auto-update URI if name changes
+    const newName = data.name || existing.name;
+    const uri = `mcp-tools://${newName}`;
+
     const updated: DynamicResource = {
       ...existing,
       ...data,
+      uri, // Always regenerate URI from name
       id,
       type: 'resource',
       updatedAt: Date.now(),

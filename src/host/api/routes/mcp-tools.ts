@@ -18,9 +18,10 @@ import type {
   ExportData,
   ImportOptions,
   ImportResult,
+  JsonSchema,
 } from '../../mcp-tools/types';
 
-const ajv = new Ajv({ allErrors: true, strict: false });
+const ajv = new Ajv({ allErrors: true });
 
 export interface McpToolsRouteContext {
   mcpToolsStore: McpToolsStore;
@@ -96,7 +97,7 @@ export function createMcpToolsRoutes(router: Router, ctx: McpToolsRouteContext):
       }
 
       // Additional validation
-      const result = mcpToolsStore.validateInputSchema(schema as { type?: string; properties?: Record<string, unknown> });
+      const result = mcpToolsStore.validateInputSchema(schema as JsonSchema);
       res.json({ success: true, data: result });
     } catch (error) {
       res.status(500).json({ success: false, error: (error as Error).message });

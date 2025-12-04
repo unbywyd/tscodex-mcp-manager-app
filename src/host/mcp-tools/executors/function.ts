@@ -166,7 +166,7 @@ export async function executeFunction(
       '__error__' in result &&
       (result as { __error__: boolean }).__error__
     ) {
-      const errorResult = result as { message: string; stack?: string };
+      const errorResult = result as unknown as { message: string; stack?: string };
       throw new Error(errorResult.message);
     }
 

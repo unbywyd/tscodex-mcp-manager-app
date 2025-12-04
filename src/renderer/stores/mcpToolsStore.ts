@@ -38,6 +38,11 @@ interface McpToolsState {
   editingEntity: DynamicTool | DynamicPrompt | DynamicResource | null;
   isEditorOpen: boolean;
 
+  // Selection state for export
+  selectedToolIds: Set<string>;
+  selectedPromptIds: Set<string>;
+  selectedResourceIds: Set<string>;
+
   // Actions
   fetchStatus: () => Promise<void>;
   fetchTools: () => Promise<void>;
@@ -77,8 +82,22 @@ interface McpToolsState {
   openEditor: (entity?: DynamicTool | DynamicPrompt | DynamicResource) => void;
   closeEditor: () => void;
 
+  // Selection actions for export
+  toggleToolSelection: (id: string) => void;
+  togglePromptSelection: (id: string) => void;
+  toggleResourceSelection: (id: string) => void;
+  selectAllTools: () => void;
+  selectAllPrompts: () => void;
+  selectAllResources: () => void;
+  clearToolSelection: () => void;
+  clearPromptSelection: () => void;
+  clearResourceSelection: () => void;
+
   // Export/Import
   exportData: (types?: ('tools' | 'prompts' | 'resources')[]) => Promise<ExportData>;
+  exportSelectedTools: () => Promise<ExportData>;
+  exportSelectedPrompts: () => Promise<ExportData>;
+  exportSelectedResources: () => Promise<ExportData>;
   importData: (data: ExportData, options: ImportOptions) => Promise<ImportResult>;
 }
 
@@ -93,6 +112,9 @@ export const useMcpToolsStore = create<McpToolsState>((set, get) => ({
   selectedTab: 'tools',
   editingEntity: null,
   isEditorOpen: false,
+  selectedToolIds: new Set<string>(),
+  selectedPromptIds: new Set<string>(),
+  selectedResourceIds: new Set<string>(),
 
   // Fetch status
   fetchStatus: async () => {
@@ -424,6 +446,59 @@ export const useMcpToolsStore = create<McpToolsState>((set, get) => ({
     isEditorOpen: false,
   }),
 
+  // Selection actions for export
+  toggleToolSelection: (id: string) => {
+    const current = get().selectedToolIds;
+    const next = new Set(current);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    set({ selectedToolIds: next });
+  },
+
+  togglePromptSelection: (id: string) => {
+    const current = get().selectedPromptIds;
+    const next = new Set(current);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    set({ selectedPromptIds: next });
+  },
+
+  toggleResourceSelection: (id: string) => {
+    const current = get().selectedResourceIds;
+    const next = new Set(current);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    set({ selectedResourceIds: next });
+  },
+
+  selectAllTools: () => {
+    const allIds = new Set(get().tools.map(t => t.id));
+    set({ selectedToolIds: allIds });
+  },
+
+  selectAllPrompts: () => {
+    const allIds = new Set(get().prompts.map(p => p.id));
+    set({ selectedPromptIds: allIds });
+  },
+
+  selectAllResources: () => {
+    const allIds = new Set(get().resources.map(r => r.id));
+    set({ selectedResourceIds: allIds });
+  },
+
+  clearToolSelection: () => set({ selectedToolIds: new Set() }),
+  clearPromptSelection: () => set({ selectedPromptIds: new Set() }),
+  clearResourceSelection: () => set({ selectedResourceIds: new Set() }),
+
   // Export data
   exportData: async (types?: ('tools' | 'prompts' | 'resources')[]) => {
     const typesParam = types ? types.join(',') : undefined;
@@ -434,6 +509,37 @@ export const useMcpToolsStore = create<McpToolsState>((set, get) => ({
       throw new Error(result.error || 'Export failed');
     }
     return response.json();
+  },
+
+  // Export selected items (client-side filtering)
+  exportSelectedTools: async () => {
+    const { tools, selectedToolIds } = get();
+    const selectedTools = tools.filter(t => selectedToolIds.has(t.id));
+    return {
+      version: 1 as const,
+      exportedAt: Date.now(),
+      tools: selectedTools,
+    };
+  },
+
+  exportSelectedPrompts: async () => {
+    const { prompts, selectedPromptIds } = get();
+    const selectedPrompts = prompts.filter(p => selectedPromptIds.has(p.id));
+    return {
+      version: 1 as const,
+      exportedAt: Date.now(),
+      prompts: selectedPrompts,
+    };
+  },
+
+  exportSelectedResources: async () => {
+    const { resources, selectedResourceIds } = get();
+    const selectedResources = resources.filter(r => selectedResourceIds.has(r.id));
+    return {
+      version: 1 as const,
+      exportedAt: Date.now(),
+      resources: selectedResources,
+    };
   },
 
   // Import data

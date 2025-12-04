@@ -12,6 +12,7 @@ import { CodeEditor } from '../ui/code-editor';
 import { JsonEditor } from '../ui/json-editor';
 import { RichTextEditor } from '../ui/rich-text-editor';
 import { MarkdownEditor } from '../ui/markdown-editor';
+import { InfoDialog } from '../ui/dialogs';
 
 interface ToolEditorProps {
   tool?: DynamicTool;
@@ -81,6 +82,11 @@ export function ToolEditor({ tool, onClose }: ToolEditorProps) {
   const [staticJsonError, setStaticJsonError] = useState<string | null>(null);
   const [functionError, setFunctionError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorDialog, setErrorDialog] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+  }>({ open: false, title: '', message: '' });
 
   // Validate name on change
   useEffect(() => {
@@ -198,7 +204,11 @@ export function ToolEditor({ tool, onClose }: ToolEditorProps) {
       onClose();
     } catch (error) {
       console.error('Failed to save tool:', error);
-      alert((error as Error).message);
+      setErrorDialog({
+        open: true,
+        title: 'Save Failed',
+        message: (error as Error).message,
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -528,6 +538,15 @@ export function ToolEditor({ tool, onClose }: ToolEditorProps) {
           {tool ? 'Save' : 'Create'}
         </button>
       </div>
+
+      {/* Error dialog */}
+      <InfoDialog
+        open={errorDialog.open}
+        title={errorDialog.title}
+        description={errorDialog.message}
+        variant="error"
+        onClose={() => setErrorDialog({ open: false, title: '', message: '' })}
+      />
     </div>
   );
 }

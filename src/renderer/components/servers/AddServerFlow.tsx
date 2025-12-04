@@ -49,36 +49,43 @@ export function AddServerFlow({ onClose, onServerAdded }: AddServerFlowProps) {
   const [verificationResult, setVerificationResult] = useState<VerificationResult | null>(null);
   const [verificationLogs, setVerificationLogs] = useState<string[]>([]);
 
-  const installTypeOptions: { type: InstallType; label: string; description: string; icon: JSX.Element }[] = [
+  const installTypeOptions: { type: InstallType; label: string; description: string; icon: JSX.Element; recommended?: boolean }[] = [
     {
-      type: 'npx',
-      label: 'NPX Package',
-      description: 'Install and run npm package using npx',
+      type: 'npm',
+      label: 'NPM Package',
+      description: 'Install via npm (recommended, fast startup)',
       icon: <Package className="w-5 h-5" />,
-    },
-    {
-      type: 'pnpx',
-      label: 'PNPM Package',
-      description: 'Install and run npm package using pnpx',
-      icon: <Package className="w-5 h-5" />,
-    },
-    {
-      type: 'yarn',
-      label: 'Yarn Package',
-      description: 'Install and run npm package using yarn dlx',
-      icon: <Package className="w-5 h-5" />,
-    },
-    {
-      type: 'bunx',
-      label: 'Bun Package',
-      description: 'Install and run npm package using bunx',
-      icon: <Package className="w-5 h-5" />,
+      recommended: true,
     },
     {
       type: 'local',
       label: 'Local Path',
       description: 'Use a local MCP server script',
       icon: <FolderOpen className="w-5 h-5" />,
+    },
+    {
+      type: 'npx',
+      label: 'NPX Package',
+      description: 'Run via npx (slower startup)',
+      icon: <Package className="w-5 h-5" />,
+    },
+    {
+      type: 'pnpx',
+      label: 'PNPM Package',
+      description: 'Run via pnpx (slower startup)',
+      icon: <Package className="w-5 h-5" />,
+    },
+    {
+      type: 'yarn',
+      label: 'Yarn Package',
+      description: 'Run via yarn dlx (slower startup)',
+      icon: <Package className="w-5 h-5" />,
+    },
+    {
+      type: 'bunx',
+      label: 'Bun Package',
+      description: 'Run via bunx (slower startup)',
+      icon: <Package className="w-5 h-5" />,
     },
   ];
 
@@ -123,10 +130,53 @@ export function AddServerFlow({ onClose, onServerAdded }: AddServerFlowProps) {
     try {
       addLog('Starting server verification...');
 
-      // Step 1: Create server template (this will install if needed)
+      let resolvedPackageVersion = packageVersion;
+      let entryPoint: string | undefined;
+
+      // Step 0: For npm install type, install the package first
+      if (installType === 'npm') {
+        addLog(`Installing ${packageName}...`);
+
+        const installResponse = await fetch(`${API_BASE}/packages/install`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            packageName,
+            version: packageVersion || undefined,
+          }),
+        });
+
+        const installData = await installResponse.json();
+
+        if (!installData.success) {
+          throw new Error(installData.error || 'Installation failed');
+        }
+
+        resolvedPackageVersion = installData.version;
+        entryPoint = installData.entryPoint;
+        addLog(`Installed ${packageName}@${resolvedPackageVersion}`);
+        addLog(`Entry point: ${entryPoint}`);
+      } else if (installType !== 'local' && !packageVersion) {
+        // For other types, get version from registry
+        addLog(`Fetching latest version for ${packageName}...`);
+        try {
+          const versionResponse = await fetch(`${API_BASE}/packages/${encodeURIComponent(packageName)}/version`);
+          const versionData = await versionResponse.json();
+          if (versionData.success && versionData.version) {
+            resolvedPackageVersion = versionData.version;
+            addLog(`Latest version: ${resolvedPackageVersion}`);
+          } else {
+            addLog(`Warning: Could not fetch version (${versionData.error || 'unknown error'}), will use 'latest'`);
+          }
+        } catch (err) {
+          addLog(`Warning: Could not fetch version, will use 'latest'`);
+        }
+      }
+
+      // Step 1: Create server template
       addLog(installType === 'local'
         ? `Checking local path: ${localPath}`
-        : `Preparing package: ${packageName}${packageVersion ? `@${packageVersion}` : ''}`
+        : `Creating server: ${packageName}@${resolvedPackageVersion || 'latest'}`
       );
 
       const createResponse = await fetch(`${API_BASE}/servers`, {
@@ -135,8 +185,10 @@ export function AddServerFlow({ onClose, onServerAdded }: AddServerFlowProps) {
         body: JSON.stringify({
           installType,
           packageName: installType !== 'local' ? packageName : undefined,
-          packageVersion: installType !== 'local' && packageVersion ? packageVersion : undefined,
+          // Only send packageVersion if it's actually set (not empty string)
+          packageVersion: installType !== 'local' && resolvedPackageVersion ? resolvedPackageVersion : undefined,
           localPath: installType === 'local' ? localPath : undefined,
+          entryPoint: installType === 'npm' ? entryPoint : undefined,
         }),
       });
 
@@ -206,6 +258,7 @@ export function AddServerFlow({ onClose, onServerAdded }: AddServerFlowProps) {
                 toolsCount: metadata.tools?.length || 0,
                 resourcesCount: metadata.resources?.length || 0,
                 promptsCount: metadata.prompts?.length || 0,
+                contextHeaders: metadata.contextHeaders,
               }),
             });
 
@@ -312,13 +365,18 @@ export function AddServerFlow({ onClose, onServerAdded }: AddServerFlowProps) {
                 <button
                   key={option.type}
                   onClick={() => handleSelectType(option.type)}
-                  className="w-full card card-hover p-4 flex items-center gap-4 text-left"
+                  className={`w-full card card-hover p-4 flex items-center gap-4 text-left ${option.recommended ? 'border-primary' : ''}`}
                 >
-                  <div className="w-10 h-10 rounded-lg bg-bg-hover flex items-center justify-center text-gray-400">
+                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${option.recommended ? 'bg-primary/20 text-primary' : 'bg-bg-hover text-gray-400'}`}>
                     {option.icon}
                   </div>
                   <div className="flex-1">
-                    <h3 className="font-medium">{option.label}</h3>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-medium">{option.label}</h3>
+                      {option.recommended && (
+                        <span className="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded font-medium">Recommended</span>
+                      )}
+                    </div>
                     <p className="text-sm text-gray-500">{option.description}</p>
                   </div>
                 </button>

@@ -150,7 +150,8 @@ export class ProcessManager {
         server.installType,
         server.packageName,
         server.packageVersion,
-        server.localPath
+        server.localPath,
+        server.entryPoint
       );
 
       // Get user profile for MCP_AUTH_TOKEN
@@ -764,6 +765,12 @@ export class ProcessManager {
           if (data.tools) instance.toolsCount = data.tools;
           if (data.resources) instance.resourcesCount = data.resources;
           if (data.prompts) instance.promptsCount = data.prompts;
+
+          // Fetch full metadata to get contextHeaders and other runtime info
+          this.fetchAndStoreMetadata(port, instance.serverId, instance.workspaceId).catch((err) => {
+            console.warn(`[ProcessManager] Failed to fetch metadata for ${instance.serverId}:`, err);
+          });
+
           return;
         }
       } catch {
@@ -774,6 +781,52 @@ export class ProcessManager {
     }
 
     throw new Error(`Health check failed after ${HEALTH_CHECK_MAX_ATTEMPTS} attempts`);
+  }
+
+  /**
+   * Fetch server metadata and store contextHeaders in ServerStore
+   */
+  private async fetchAndStoreMetadata(port: number, serverId: string, workspaceId: string): Promise<void> {
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/gateway/metadata`, {
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (!response.ok) return;
+
+      const data = (await response.json()) as {
+        contextHeaders?: string[];
+        config?: {
+          schema?: Record<string, unknown>;
+        };
+      };
+
+      // Update server template with runtime metadata
+      const updates: { contextHeaders?: string[]; configSchema?: Record<string, unknown> } = {};
+
+      if (data.contextHeaders && data.contextHeaders.length > 0) {
+        updates.contextHeaders = data.contextHeaders;
+      }
+
+      if (data.config?.schema) {
+        updates.configSchema = data.config.schema;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await this.serverStore.update(serverId, updates);
+        console.log(`[ProcessManager] Updated server ${serverId} metadata:`, Object.keys(updates));
+
+        // Emit event so UI refreshes with new metadata
+        this.eventBus.emitServerEvent({
+          type: 'server-started',
+          serverId,
+          workspaceId,
+          data: { port },
+        });
+      }
+    } catch {
+      // Silently ignore - metadata fetch is best-effort
+    }
   }
 
   /**

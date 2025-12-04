@@ -207,7 +207,7 @@ export function validateSchema(
       });
     }
 
-    if (schema.uniqueItems && new Set(value.map(JSON.stringify)).size !== value.length) {
+    if (schema.uniqueItems && new Set(value.map((v) => JSON.stringify(v))).size !== value.length) {
       errors.push({
         path,
         message: 'Array items must be unique',

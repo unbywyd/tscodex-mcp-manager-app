@@ -83,7 +83,7 @@ interface AppState {
   restartServer: (serverId: string) => Promise<void>;
   restartAllServers: () => Promise<{ restarted: number; failed: number }>;
   deleteServer: (serverId: string) => Promise<void>;
-  checkServerUpdate: (serverId: string) => Promise<{ hasUpdate: boolean; latestVersion: string | null }>;
+  checkServerUpdate: (serverId: string) => Promise<{ hasUpdate: boolean; latestVersion: string | null; currentVersion?: string }>;
   updateServer: (serverId: string, version?: string) => Promise<{ success: boolean; newVersion?: string }>;
   checkAllServerUpdates: () => Promise<void>;
   refreshServerMetadata: (serverId: string) => Promise<void>;
@@ -132,10 +132,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       set({ isLoading: false });
 
-      // Check for updates in background (don't block initialization)
-      get().checkAllServerUpdates().catch((err) => {
-        console.error('Failed to check server updates:', err);
-      });
+      // Note: Auto-update check removed - users can manually check via "Check for updates" button
     } catch (error) {
       set({
         isLoading: false,
@@ -577,7 +574,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         }));
       }
 
-      return { hasUpdate: data.hasUpdate, latestVersion: data.latestVersion };
+      return { hasUpdate: data.hasUpdate, latestVersion: data.latestVersion, currentVersion: data.currentVersion };
     } catch (error) {
       console.error('Failed to check server update:', error);
       return { hasUpdate: false, latestVersion: null };
