@@ -10,6 +10,7 @@ import { ServerStore } from '../../stores/ServerStore';
 import { WorkspaceStore } from '../../stores/WorkspaceStore';
 import { SessionStore } from '../../stores/SessionStore';
 import { SecretStore } from '../../stores/SecretStore';
+import { McpToolsStore } from '../../stores/McpToolsStore';
 
 import { createAuthRoutes } from './auth';
 import { createServerRoutes } from './servers';
@@ -17,12 +18,14 @@ import { createWorkspaceRoutes } from './workspaces';
 import { createSessionRoutes } from './sessions';
 import { createInstanceRoutes } from './instances';
 import { createSecretRoutes } from './secrets';
+import { createMcpToolsRoutes } from './mcp-tools';
 
 export interface RouteContext {
   serverStore: ServerStore;
   workspaceStore: WorkspaceStore;
   sessionStore: SessionStore;
   secretStore: SecretStore;
+  mcpToolsStore: McpToolsStore;
   processManager: ProcessManager;
   portManager: PortManager;
   eventBus: EventBus;
@@ -36,6 +39,7 @@ export function setupRoutes(router: Router, ctx: RouteContext): void {
       timestamp: Date.now(),
       sessions: ctx.sessionStore.getCount(),
       servers: ctx.serverStore.getAll().length,
+      mcpTools: ctx.mcpToolsStore.getStatus(),
     });
   });
 
@@ -46,4 +50,5 @@ export function setupRoutes(router: Router, ctx: RouteContext): void {
   createSessionRoutes(router, ctx);
   createInstanceRoutes(router, ctx);
   createSecretRoutes(router, ctx);
+  createMcpToolsRoutes(router, { mcpToolsStore: ctx.mcpToolsStore, eventBus: ctx.eventBus });
 }

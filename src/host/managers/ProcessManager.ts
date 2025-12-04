@@ -7,14 +7,20 @@ import { EventBus } from './EventBus';
 import { PortManager } from './PortManager';
 import { ServerStore } from '../stores/ServerStore';
 import { SecretStore } from '../stores/SecretStore';
+import { WorkspaceStore } from '../stores/WorkspaceStore';
 import { getSpawnCommand, delay } from '../../shared/utils';
 import {
   ServerInstance,
   ServerStatus,
+  ServerPermissions,
+  EnvPermissions,
+  ContextPermissions,
+  SecretsPermissions,
   HEALTH_CHECK_TIMEOUT,
   HEALTH_CHECK_INTERVAL,
   HEALTH_CHECK_MAX_ATTEMPTS,
   DEFAULT_MCP_PATH,
+  LEGACY_SERVER_PERMISSIONS,
 } from '../../shared/types';
 
 interface ProcessInfo {
@@ -29,6 +35,7 @@ const GRACEFUL_SHUTDOWN_TIMEOUT = 5000;
 
 export class ProcessManager {
   private processes: Map<string, ProcessInfo> = new Map();
+  private workspaceStore: WorkspaceStore | null = null;
 
   constructor(
     private portManager: PortManager,
@@ -36,6 +43,56 @@ export class ProcessManager {
     private serverStore: ServerStore,
     private secretStore: SecretStore
   ) {}
+
+  /**
+   * Set workspace store reference (optional, for permission support)
+   */
+  setWorkspaceStore(store: WorkspaceStore): void {
+    this.workspaceStore = store;
+  }
+
+  /**
+   * Get effective permissions for a server in a workspace
+   * Merges global server permissions with workspace-level overrides
+   */
+  private async getEffectivePermissions(
+    serverId: string,
+    workspaceId: string
+  ): Promise<ServerPermissions | undefined> {
+    const server = await this.serverStore.get(serverId);
+    if (!server) return undefined;
+
+    // Get global permissions from server template
+    const globalPerms = server.permissions;
+    if (!globalPerms) return undefined; // Use legacy behavior
+
+    // Get workspace-level override if available
+    if (this.workspaceStore && workspaceId !== 'global') {
+      const wsConfig = this.workspaceStore.getServerConfig(workspaceId, serverId);
+      const wsOverride = wsConfig?.permissionsOverride;
+
+      if (wsOverride) {
+        // Merge workspace override on top of global
+        return this.mergePermissions(globalPerms, wsOverride);
+      }
+    }
+
+    return globalPerms;
+  }
+
+  /**
+   * Merge permission overrides onto base permissions
+   */
+  private mergePermissions(
+    base: ServerPermissions,
+    override: Partial<ServerPermissions>
+  ): ServerPermissions {
+    return {
+      env: override.env ? { ...base.env, ...override.env } : base.env,
+      context: override.context ? { ...base.context, ...override.context } : base.context,
+      secrets: override.secrets || base.secrets,
+    };
+  }
 
   /**
    * Generate unique key for server instance
@@ -99,7 +156,10 @@ export class ProcessManager {
       // Get user profile for MCP_AUTH_TOKEN
       const userProfile = await this.secretStore.getProfile();
 
-      // Build environment variables
+      // Get effective permissions (global + workspace override)
+      const permissions = await this.getEffectivePermissions(serverId, workspaceId);
+
+      // Build environment variables with permission-based filtering
       const env = await this.buildEnvironment(
         serverId,
         workspaceId,
@@ -107,7 +167,8 @@ export class ProcessManager {
         projectRoot,
         server.defaultConfig,
         configOverride,
-        userProfile
+        userProfile,
+        permissions
       );
 
       console.log(`[ProcessManager] Starting server ${serverId}`);
@@ -343,7 +404,7 @@ export class ProcessManager {
   }
 
   /**
-   * Build environment variables for process
+   * Build environment variables for process with permission-based filtering
    */
   private async buildEnvironment(
     serverId: string,
@@ -352,12 +413,11 @@ export class ProcessManager {
     projectRoot?: string,
     defaultConfig?: Record<string, unknown>,
     configOverride?: Record<string, unknown>,
-    userProfile?: { email: string; fullName: string } | null
+    userProfile?: { email: string; fullName: string } | null,
+    permissions?: ServerPermissions
   ): Promise<NodeJS.ProcessEnv> {
-    // Get secrets with priority: app global < server global < server workspace
-    const appGlobalSecrets = await this.secretStore.getSecrets('__app__', 'global');
-    const serverGlobalSecrets = await this.secretStore.getSecrets(serverId, 'global');
-    const serverWorkspaceSecrets = await this.secretStore.getSecrets(serverId, 'workspace', workspaceId);
+    // Use legacy permissions if not specified (backward compatibility)
+    const effectivePermissions = permissions || LEGACY_SERVER_PERMISSIONS;
 
     // Merge config
     const config = {
@@ -365,48 +425,187 @@ export class ProcessManager {
       ...configOverride,
     };
 
-    // Merge secrets (priority: app global < server global < server workspace)
+    // 1. Build filtered system environment variables
+    const filteredEnv = this.filterSystemEnv(effectivePermissions.env);
+
+    // 2. Build context variables based on permissions
+    const contextEnv = this.buildContextEnv(
+      effectivePermissions.context,
+      projectRoot,
+      workspaceId,
+      userProfile
+    );
+
+    // 3. Build secrets based on permissions
+    const secretsEnv = await this.buildSecretsEnv(
+      effectivePermissions.secrets,
+      serverId,
+      workspaceId
+    );
+
+    // Build final environment
+    const env: NodeJS.ProcessEnv = {
+      ...filteredEnv,
+      ...contextEnv,
+      ...secretsEnv,
+      MCP_PORT: String(port),
+      MCP_HOST: '127.0.0.1',
+      MCP_PATH: DEFAULT_MCP_PATH,
+      MCP_SERVER_ID: serverId,
+      MCP_CONFIG: JSON.stringify(config),
+      NODE_ENV: 'production',
+    };
+
+    // Build MCP_AUTH_TOKEN if user profile is allowed
+    if (effectivePermissions.context.allowUserProfile && userProfile?.email) {
+      const authPayload: Record<string, string> = {
+        email: userProfile.email,
+        fullName: userProfile.fullName || '',
+      };
+
+      // Add token from secrets if available and secrets are allowed
+      if (secretsEnv['SECRET_MCP_AUTH_TOKEN']) {
+        authPayload.token = String(secretsEnv['SECRET_MCP_AUTH_TOKEN']);
+      }
+
+      env.MCP_AUTH_TOKEN = JSON.stringify(authPayload);
+      console.log(`[ProcessManager] MCP_AUTH_TOKEN set with profile (email: ${userProfile.email})`);
+    } else {
+      console.log(`[ProcessManager] No user profile or not allowed, server will run without auth`);
+    }
+
+    return env;
+  }
+
+  /**
+   * Filter system environment variables based on permissions
+   */
+  private filterSystemEnv(envPerms: EnvPermissions): NodeJS.ProcessEnv {
+    const result: NodeJS.ProcessEnv = {};
+
+    // Check for legacy '*' wildcard - allow all
+    if (envPerms.customAllowlist.includes('*')) {
+      return { ...process.env };
+    }
+
+    // PATH variables
+    if (envPerms.allowPath) {
+      if (process.env.PATH) result.PATH = process.env.PATH;
+      if (process.env.PATHEXT) result.PATHEXT = process.env.PATHEXT;
+      // Windows-specific
+      if (process.env.SystemRoot) result.SystemRoot = process.env.SystemRoot;
+      if (process.env.SYSTEMROOT) result.SYSTEMROOT = process.env.SYSTEMROOT;
+    }
+
+    // Home directory variables
+    if (envPerms.allowHome) {
+      if (process.env.HOME) result.HOME = process.env.HOME;
+      if (process.env.USERPROFILE) result.USERPROFILE = process.env.USERPROFILE;
+      if (process.env.HOMEPATH) result.HOMEPATH = process.env.HOMEPATH;
+      if (process.env.HOMEDRIVE) result.HOMEDRIVE = process.env.HOMEDRIVE;
+    }
+
+    // Language/locale variables
+    if (envPerms.allowLang) {
+      if (process.env.LANG) result.LANG = process.env.LANG;
+      if (process.env.LANGUAGE) result.LANGUAGE = process.env.LANGUAGE;
+      // Copy all LC_* variables
+      for (const key of Object.keys(process.env)) {
+        if (key.startsWith('LC_')) {
+          result[key] = process.env[key];
+        }
+      }
+    }
+
+    // Temp directory variables
+    if (envPerms.allowTemp) {
+      if (process.env.TEMP) result.TEMP = process.env.TEMP;
+      if (process.env.TMP) result.TMP = process.env.TMP;
+      if (process.env.TMPDIR) result.TMPDIR = process.env.TMPDIR;
+    }
+
+    // Node.js variables
+    if (envPerms.allowNode) {
+      for (const key of Object.keys(process.env)) {
+        if (key.startsWith('NODE_') || key.startsWith('npm_') || key.startsWith('NPM_')) {
+          result[key] = process.env[key];
+        }
+      }
+    }
+
+    // Custom allowlist (specific variable names)
+    for (const key of envPerms.customAllowlist) {
+      if (key !== '*' && process.env[key]) {
+        result[key] = process.env[key];
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Build context environment variables based on permissions
+   */
+  private buildContextEnv(
+    contextPerms: ContextPermissions,
+    projectRoot?: string,
+    workspaceId?: string,
+    userProfile?: { email: string; fullName: string } | null
+  ): NodeJS.ProcessEnv {
+    const result: NodeJS.ProcessEnv = {};
+
+    if (contextPerms.allowProjectRoot && projectRoot) {
+      result.MCP_PROJECT_ROOT = projectRoot;
+    }
+
+    if (contextPerms.allowWorkspaceId && workspaceId) {
+      result.MCP_WORKSPACE_ID = workspaceId;
+    }
+
+    // Note: MCP_AUTH_TOKEN is handled separately in buildEnvironment
+    // based on allowUserProfile
+
+    return result;
+  }
+
+  /**
+   * Build secrets environment variables based on permissions
+   */
+  private async buildSecretsEnv(
+    secretsPerms: SecretsPermissions,
+    serverId: string,
+    workspaceId: string
+  ): Promise<Record<string, string>> {
+    // No secrets mode
+    if (secretsPerms.mode === 'none') {
+      return {};
+    }
+
+    // Get all available secrets with priority: app global < server global < server workspace
+    const appGlobalSecrets = await this.secretStore.getSecrets('__app__', 'global');
+    const serverGlobalSecrets = await this.secretStore.getSecrets(serverId, 'global');
+    const serverWorkspaceSecrets = await this.secretStore.getSecrets(serverId, 'workspace', workspaceId);
+
     const allSecrets = {
       ...appGlobalSecrets,
       ...serverGlobalSecrets,
       ...serverWorkspaceSecrets,
     };
 
-    // Build environment variables
-    const env: NodeJS.ProcessEnv = {
-      ...process.env,
-      MCP_PORT: String(port),
-      MCP_HOST: '127.0.0.1',
-      MCP_PATH: DEFAULT_MCP_PATH,
-      MCP_PROJECT_ROOT: projectRoot || '',
-      MCP_WORKSPACE_ID: workspaceId,
-      MCP_SERVER_ID: serverId,
-      MCP_CONFIG: JSON.stringify(config),
-      NODE_ENV: 'production',
-      // Pass all secrets as-is (except SECRET_MCP_AUTH_TOKEN which is handled specially)
-      ...allSecrets,
-    };
-
-    // Build MCP_AUTH_TOKEN as JSON object with user profile and optional token
-    // Format: {"email": "...", "fullName": "...", "token": "..."}
-    if (userProfile?.email) {
-      const authPayload: Record<string, string> = {
-        email: userProfile.email,
-        fullName: userProfile.fullName || '',
-      };
-
-      // Add token from secrets if available
-      if (allSecrets['SECRET_MCP_AUTH_TOKEN']) {
-        authPayload.token = String(allSecrets['SECRET_MCP_AUTH_TOKEN']);
-      }
-
-      env.MCP_AUTH_TOKEN = JSON.stringify(authPayload);
-      console.log(`[ProcessManager] MCP_AUTH_TOKEN set with profile (email: ${userProfile.email})`);
-    } else {
-      console.log(`[ProcessManager] No user profile, server will run without auth`);
+    // All secrets mode
+    if (secretsPerms.mode === 'all') {
+      return allSecrets;
     }
 
-    return env;
+    // Allowlist mode - only pass explicitly allowed secrets
+    const result: Record<string, string> = {};
+    for (const key of secretsPerms.allowlist) {
+      if (allSecrets[key]) {
+        result[key] = allSecrets[key];
+      }
+    }
+
+    return result;
   }
 
   /**

@@ -10,6 +10,7 @@ interface SecretEntry {
   value: string;
   isNew?: boolean;
   isDirty?: boolean;
+  isDeleted?: boolean;
 }
 
 // Global secrets are stored with a special "app" serverId
@@ -125,31 +126,31 @@ export function SecretsView({ workspaceId }: SecretsViewProps) {
     return key.startsWith(SECRET_PREFIX) ? key.slice(SECRET_PREFIX.length) : key;
   };
 
-  const deleteSecret = async (index: number) => {
+  const deleteSecret = (index: number) => {
     const secret = secrets[index];
-    if (secret.key && !secret.isNew) {
-      try {
-        await window.electronAPI?.deleteSecret(
-          GLOBAL_SERVER_ID,
-          secret.key,
-          scope,
-          scope === 'workspace' ? workspaceId : undefined
-        );
-      } catch (err) {
-        console.error('Failed to delete secret:', err);
-        setError('Failed to delete secret');
-        return;
-      }
+    if (secret.isNew) {
+      // New secrets can be removed immediately (not saved yet)
+      setSecrets(secrets.filter((_, i) => i !== index));
+    } else {
+      // Mark existing secrets for deletion on save
+      const updated = [...secrets];
+      updated[index] = { ...updated[index], isDeleted: true };
+      setSecrets(updated);
     }
-    setSecrets(secrets.filter((_, i) => i !== index));
     setHasChanges(true);
   };
 
+  const cancelChanges = () => {
+    loadSecrets();
+    setKeyErrors({});
+    setError(null);
+  };
+
   const saveSecrets = async () => {
-    // Validate all keys before saving
+    // Validate all keys before saving (skip deleted ones)
     const validationErrors: Record<number, string> = {};
     secrets.forEach((secret, index) => {
-      if (secret.key) {
+      if (secret.key && !secret.isDeleted) {
         const displayKey = getDisplayKey(secret.key);
         const err = validateSecretKey(displayKey);
         if (err) {
@@ -170,6 +171,18 @@ export function SecretsView({ workspaceId }: SecretsViewProps) {
 
     try {
       for (const secret of secrets) {
+        // Delete marked secrets
+        if (secret.isDeleted && secret.key) {
+          await window.electronAPI?.deleteSecret(
+            GLOBAL_SERVER_ID,
+            secret.key,
+            scope,
+            scope === 'workspace' ? workspaceId : undefined
+          );
+          continue;
+        }
+
+        // Save new or modified secrets
         if ((secret.isNew || secret.isDirty) && secret.key && secret.value) {
           await window.electronAPI?.setSecret(
             GLOBAL_SERVER_ID,
@@ -222,6 +235,15 @@ export function SecretsView({ workspaceId }: SecretsViewProps) {
           </span>
         </div>
         <div className="flex items-center gap-2">
+          {hasChanges && (
+            <button
+              onClick={cancelChanges}
+              disabled={isSaving}
+              className="btn btn-secondary text-sm"
+            >
+              Cancel
+            </button>
+          )}
           <button
             onClick={saveSecrets}
             disabled={isSaving || !hasChanges}
@@ -253,7 +275,7 @@ export function SecretsView({ workspaceId }: SecretsViewProps) {
           {/* Secrets list */}
           {isLoading ? (
             <div className="text-center py-12 text-gray-500">Loading secrets...</div>
-          ) : secrets.length === 0 ? (
+          ) : secrets.filter(s => !s.isDeleted).length === 0 ? (
             <div className="flex items-center justify-center min-h-[260px]">
               <div className="text-center max-w-md">
                 <h3 className="text-xl font-semibold text-white mb-2">No Secrets Configured</h3>
@@ -269,30 +291,31 @@ export function SecretsView({ workspaceId }: SecretsViewProps) {
             </div>
           ) : (
             <div className="space-y-3">
-              {secrets.map((secret, index) => (
+              {secrets.map((secret, index) => secret.isDeleted ? null : (
                 <div key={index} className="card p-4">
                   {/* Responsive: stack on mobile, row on larger screens */}
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                  <div className="flex flex-col sm:flex-row sm:items-start gap-4">
                     {/* Key input with SECRET_ prefix */}
                     <div className="flex-1 min-w-0">
                       <label className="block text-xs text-gray-500 mb-1">Key</label>
-                      <div className="flex flex-col">
-                        <div className="flex">
-                          <span className="inline-flex items-center px-2 sm:px-3 text-xs sm:text-sm font-mono text-gray-400 bg-bg-tertiary border border-r-0 border-border-default rounded-l-md select-none whitespace-nowrap">
-                            SECRET_
-                          </span>
-                          <input
-                            type="text"
-                            value={getDisplayKey(secret.key)}
-                            onChange={(e) => updateSecret(index, 'key', e.target.value)}
-                            placeholder="API_KEY"
-                            className={`input font-mono text-sm rounded-l-none flex-1 min-w-0 uppercase ${
-                              keyErrors[index] ? 'border-red-500' : ''
-                            }`}
-                            disabled={!secret.isNew}
-                            style={{ textTransform: 'uppercase' }}
-                          />
-                        </div>
+                      <div className="flex">
+                        <span className="inline-flex items-center px-2 sm:px-3 text-xs sm:text-sm font-mono text-gray-400 bg-bg-tertiary border border-r-0 border-border-default rounded-l-md select-none whitespace-nowrap">
+                          SECRET_
+                        </span>
+                        <input
+                          type="text"
+                          value={getDisplayKey(secret.key)}
+                          onChange={(e) => updateSecret(index, 'key', e.target.value)}
+                          placeholder="API_KEY"
+                          className={`input font-mono text-sm rounded-l-none flex-1 min-w-0 uppercase ${
+                            keyErrors[index] ? 'border-red-500' : ''
+                          }`}
+                          disabled={!secret.isNew}
+                          style={{ textTransform: 'uppercase' }}
+                        />
+                      </div>
+                      {/* Validation error - absolute position to not affect layout */}
+                      <div className="h-5">
                         {keyErrors[index] && (
                           <p className="text-xs text-red-400 mt-1">{keyErrors[index]}</p>
                         )}
@@ -322,10 +345,12 @@ export function SecretsView({ workspaceId }: SecretsViewProps) {
                           )}
                         </button>
                       </div>
+                      {/* Spacer to align with key input's validation area */}
+                      <div className="h-5" />
                     </div>
 
                     {/* Status indicators and delete */}
-                    <div className="flex items-center gap-2 sm:mt-5 justify-end sm:justify-start">
+                    <div className="flex items-center gap-2 sm:mt-6 justify-end sm:justify-start">
                       {secret.isNew && (
                         <span className="px-2 py-0.5 text-xs font-medium rounded bg-yellow-600 text-yellow-200">
                           New

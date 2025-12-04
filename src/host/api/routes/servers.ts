@@ -4,8 +4,8 @@
 
 import { Router, Request, Response } from '../../http/router';
 import type { RouteContext } from './index';
-import type { InstallType } from '../../../shared/types';
-import { DEFAULT_HOST_PORT } from '../../../shared/types';
+import type { InstallType, ServerPermissions } from '../../../shared/types';
+import { DEFAULT_HOST_PORT, DEFAULT_SERVER_PERMISSIONS } from '../../../shared/types';
 import { checkForUpdate, clearPackageCache } from '../../managers/PackageVersionChecker';
 import { readLocalPackageJson, fetchNpmPackageMetadata } from '../../managers/PackageMetadataReader';
 
@@ -435,6 +435,248 @@ export function createServerRoutes(router: Router, ctx: RouteContext): void {
         previousVersion,
         newVersion: targetVersion,
         restarted: wasRunning,
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  });
+
+  // ============================================================================
+  // Server Permissions Routes
+  // ============================================================================
+
+  // Get global permissions for a server
+  router.get('/api/servers/:id/permissions', async (req: Request, res: Response) => {
+    try {
+      const server = await ctx.serverStore.get(req.params.id);
+
+      if (!server) {
+        res.status(404).json({
+          success: false,
+          error: 'Server not found',
+        });
+        return;
+      }
+
+      // Return permissions or default if not set
+      const permissions = server.permissions || null;
+      const isLegacy = !server.permissions;
+
+      res.json({
+        success: true,
+        data: {
+          permissions,
+          isLegacy, // Indicates server has no permissions configured (uses legacy behavior)
+          defaults: DEFAULT_SERVER_PERMISSIONS,
+        },
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  });
+
+  // Update global permissions for a server
+  router.put('/api/servers/:id/permissions', async (req: Request, res: Response) => {
+    try {
+      const server = await ctx.serverStore.get(req.params.id);
+
+      if (!server) {
+        res.status(404).json({
+          success: false,
+          error: 'Server not found',
+        });
+        return;
+      }
+
+      const body = req.body as { permissions: ServerPermissions };
+      const { permissions } = body;
+
+      if (!permissions) {
+        res.status(400).json({
+          success: false,
+          error: 'permissions is required',
+        });
+        return;
+      }
+
+      // Validate permissions structure
+      if (!permissions.env || !permissions.context || !permissions.secrets) {
+        res.status(400).json({
+          success: false,
+          error: 'Invalid permissions structure. Must include env, context, and secrets',
+        });
+        return;
+      }
+
+      // Update server with new permissions
+      const updated = await ctx.serverStore.update(req.params.id, {
+        permissions,
+      });
+
+      res.json({
+        success: true,
+        data: { permissions: updated?.permissions },
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  });
+
+  // Reset permissions to default (remove custom permissions)
+  router.delete('/api/servers/:id/permissions', async (req: Request, res: Response) => {
+    try {
+      const server = await ctx.serverStore.get(req.params.id);
+
+      if (!server) {
+        res.status(404).json({
+          success: false,
+          error: 'Server not found',
+        });
+        return;
+      }
+
+      // Remove permissions (will use defaults)
+      await ctx.serverStore.update(req.params.id, {
+        permissions: undefined,
+      });
+
+      res.json({
+        success: true,
+        message: 'Permissions reset to defaults',
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  });
+
+  // Get effective permissions for a server in a workspace (merged global + workspace override)
+  router.get('/api/servers/:id/permissions/:workspaceId', async (req: Request, res: Response) => {
+    try {
+      const { id: serverId, workspaceId } = req.params;
+
+      const server = await ctx.serverStore.get(serverId);
+      if (!server) {
+        res.status(404).json({
+          success: false,
+          error: 'Server not found',
+        });
+        return;
+      }
+
+      // Get global permissions
+      const globalPerms = server.permissions || null;
+
+      // Get workspace override
+      const wsConfig = ctx.workspaceStore.getServerConfig(workspaceId, serverId);
+      const workspaceOverride = wsConfig?.permissionsOverride || null;
+
+      // Merge to get effective permissions
+      let effectivePermissions: ServerPermissions | null = null;
+      if (globalPerms) {
+        if (workspaceOverride) {
+          effectivePermissions = {
+            env: { ...globalPerms.env, ...workspaceOverride.env },
+            context: { ...globalPerms.context, ...workspaceOverride.context },
+            secrets: workspaceOverride.secrets || globalPerms.secrets,
+          };
+        } else {
+          effectivePermissions = globalPerms;
+        }
+      }
+
+      res.json({
+        success: true,
+        data: {
+          globalPermissions: globalPerms,
+          workspaceOverride,
+          effectivePermissions,
+          isLegacy: !globalPerms,
+        },
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  });
+
+  // Update workspace-level permission override
+  router.put('/api/servers/:id/permissions/:workspaceId', async (req: Request, res: Response) => {
+    try {
+      const { id: serverId, workspaceId } = req.params;
+
+      const server = await ctx.serverStore.get(serverId);
+      if (!server) {
+        res.status(404).json({
+          success: false,
+          error: 'Server not found',
+        });
+        return;
+      }
+
+      const body = req.body as { permissionsOverride: Partial<ServerPermissions> };
+      const { permissionsOverride } = body;
+
+      if (!permissionsOverride) {
+        res.status(400).json({
+          success: false,
+          error: 'permissionsOverride is required',
+        });
+        return;
+      }
+
+      // Get current workspace server config or create new one
+      const currentConfig = ctx.workspaceStore.getServerConfig(workspaceId, serverId);
+
+      await ctx.workspaceStore.setServerConfig(workspaceId, serverId, {
+        ...currentConfig,
+        enabled: currentConfig?.enabled ?? false,
+        permissionsOverride,
+      });
+
+      res.json({
+        success: true,
+        data: { permissionsOverride },
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  });
+
+  // Remove workspace-level permission override (use global)
+  router.delete('/api/servers/:id/permissions/:workspaceId', async (req: Request, res: Response) => {
+    try {
+      const { id: serverId, workspaceId } = req.params;
+
+      const currentConfig = ctx.workspaceStore.getServerConfig(workspaceId, serverId);
+
+      if (currentConfig) {
+        // Remove only permissionsOverride, keep other config
+        await ctx.workspaceStore.setServerConfig(workspaceId, serverId, {
+          ...currentConfig,
+          permissionsOverride: undefined,
+        });
+      }
+
+      res.json({
+        success: true,
+        message: 'Workspace permission override removed',
       });
     } catch (error) {
       res.status(500).json({

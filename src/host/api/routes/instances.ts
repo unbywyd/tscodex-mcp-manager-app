@@ -71,8 +71,8 @@ export function createInstanceRoutes(router: Router, ctx: RouteContext): void {
   });
 
   // Stop server instance
-  // Note: Servers always run in 'global' workspace. The workspaceId param is kept for API consistency
-  // but we always stop from global workspace.
+  // Note: Servers should run in 'global' workspace, but we also handle legacy instances
+  // that might have been started with a different workspaceId.
   router.post('/api/instances/stop', async (req: Request, res: Response) => {
     try {
       const body = req.body as { serverId?: string; workspaceId?: string };
@@ -86,8 +86,20 @@ export function createInstanceRoutes(router: Router, ctx: RouteContext): void {
         return;
       }
 
-      // Servers always run in global workspace
-      const instance = ctx.processManager.getInstance(serverId, GLOBAL_WORKSPACE_ID);
+      // Try global workspace first
+      let instance = ctx.processManager.getInstance(serverId, GLOBAL_WORKSPACE_ID);
+      let workspaceToStop = GLOBAL_WORKSPACE_ID;
+
+      // If not found in global, search all running instances for this server
+      if (!instance) {
+        const allInstances = ctx.processManager.getAllInstances();
+        const found = allInstances.find(i => i.serverId === serverId && i.status === 'running');
+        if (found) {
+          instance = found;
+          workspaceToStop = found.workspaceId;
+        }
+      }
+
       if (!instance) {
         res.status(404).json({
           success: false,
@@ -96,7 +108,7 @@ export function createInstanceRoutes(router: Router, ctx: RouteContext): void {
         return;
       }
 
-      await ctx.processManager.stop(serverId, GLOBAL_WORKSPACE_ID);
+      await ctx.processManager.stop(serverId, workspaceToStop);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({
@@ -285,7 +297,15 @@ export function createInstanceRoutes(router: Router, ctx: RouteContext): void {
     try {
       const { serverId, workspaceId } = req.params;
 
-      const instance = ctx.processManager.getInstance(serverId, workspaceId);
+      // Try requested workspace first, then global, then search all
+      let instance = ctx.processManager.getInstance(serverId, workspaceId);
+      if (!instance) {
+        instance = ctx.processManager.getInstance(serverId, GLOBAL_WORKSPACE_ID);
+      }
+      if (!instance) {
+        const allInstances = ctx.processManager.getAllInstances();
+        instance = allInstances.find(i => i.serverId === serverId && i.status === 'running');
+      }
 
       if (!instance || !instance.port) {
         res.status(404).json({

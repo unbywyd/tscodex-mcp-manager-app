@@ -22,6 +22,59 @@ export interface PackageManagerInfo {
 }
 
 // ============================================================================
+// Server Permissions Types
+// ============================================================================
+
+/**
+ * Controls which system environment variables are passed to the server
+ */
+export interface EnvPermissions {
+  /** Allow PATH, PATHEXT */
+  allowPath: boolean;
+  /** Allow HOME, USERPROFILE, HOMEPATH */
+  allowHome: boolean;
+  /** Allow LANG, LANGUAGE, LC_* */
+  allowLang: boolean;
+  /** Allow TEMP, TMP, TMPDIR */
+  allowTemp: boolean;
+  /** Allow NODE_*, npm_* */
+  allowNode: boolean;
+  /** Custom allowlist for specific variable names */
+  customAllowlist: string[];
+}
+
+/**
+ * Controls what workspace/session context data is exposed
+ */
+export interface ContextPermissions {
+  /** Allow MCP_PROJECT_ROOT */
+  allowProjectRoot: boolean;
+  /** Allow MCP_WORKSPACE_ID */
+  allowWorkspaceId: boolean;
+  /** Allow user profile (email/name) in MCP_AUTH_TOKEN */
+  allowUserProfile: boolean;
+}
+
+/**
+ * Controls which secrets from the Secret Store can be passed
+ */
+export interface SecretsPermissions {
+  /** Mode: 'none' = no secrets, 'allowlist' = only listed, 'all' = all available */
+  mode: 'none' | 'allowlist' | 'all';
+  /** When mode is 'allowlist', only these keys are passed */
+  allowlist: string[];
+}
+
+/**
+ * Complete server permissions configuration
+ */
+export interface ServerPermissions {
+  env: EnvPermissions;
+  context: ContextPermissions;
+  secrets: SecretsPermissions;
+}
+
+// ============================================================================
 // Server Types
 // ============================================================================
 
@@ -56,6 +109,9 @@ export interface ServerTemplate {
     readme?: string;
     author?: string | { name?: string; email?: string; url?: string };
   };
+
+  /** Global permissions for this server (applies to all workspaces) */
+  permissions?: ServerPermissions;
 
   createdAt: number;
   updatedAt: number;
@@ -112,7 +168,10 @@ export interface WorkspaceConfig {
 export interface WorkspaceServerConfig {
   enabled: boolean;
   configOverride?: Record<string, unknown>;
+  /** @deprecated Use permissionsOverride.secrets instead */
   secretKeys?: string[];
+  /** Workspace-level permission overrides (inherits from and overrides global) */
+  permissionsOverride?: Partial<ServerPermissions>;
 }
 
 // ============================================================================
@@ -241,3 +300,54 @@ export const HEARTBEAT_INTERVAL = 30000;
 export const SESSION_TIMEOUT = 60000;
 
 export const GLOBAL_WORKSPACE_ID = 'global';
+
+// ============================================================================
+// Default Permissions
+// ============================================================================
+
+/**
+ * Default permissions for new servers (secure by default)
+ */
+export const DEFAULT_SERVER_PERMISSIONS: ServerPermissions = {
+  env: {
+    allowPath: true,
+    allowHome: false,
+    allowLang: true,
+    allowTemp: true,
+    allowNode: true,
+    customAllowlist: [],
+  },
+  context: {
+    allowProjectRoot: true,
+    allowWorkspaceId: true,
+    allowUserProfile: true,
+  },
+  secrets: {
+    mode: 'none',
+    allowlist: [],
+  },
+};
+
+/**
+ * Legacy permissions for existing servers (backward compatible, permissive)
+ * Used during migration to avoid breaking existing setups
+ */
+export const LEGACY_SERVER_PERMISSIONS: ServerPermissions = {
+  env: {
+    allowPath: true,
+    allowHome: true,
+    allowLang: true,
+    allowTemp: true,
+    allowNode: true,
+    customAllowlist: ['*'], // Special: allow all (handled in ProcessManager)
+  },
+  context: {
+    allowProjectRoot: true,
+    allowWorkspaceId: true,
+    allowUserProfile: true,
+  },
+  secrets: {
+    mode: 'all',
+    allowlist: [],
+  },
+};

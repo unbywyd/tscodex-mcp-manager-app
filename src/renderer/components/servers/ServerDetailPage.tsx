@@ -4,6 +4,7 @@ import {
   Info,
   Settings,
   Key,
+  Shield,
   Play,
   Square,
   RotateCcw,
@@ -24,6 +25,7 @@ import {
 import { useAppStore } from '../../stores/appStore';
 import { ServerSecretsManager } from './ServerSecretsManager';
 import { ServerConfigEditor } from './ServerConfigEditor';
+import { ServerPermissionsEditor } from './ServerPermissionsEditor';
 import { AuthorizationCard } from './AuthorizationCard';
 import { ReadmePage } from './ReadmePage';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '../ui/accordion';
@@ -31,7 +33,7 @@ import { Alert } from '../ui/alert';
 import { CodeBlock } from '../ui/code-block';
 import type { ServerInfo } from '../../../shared/types';
 
-type ServerTab = 'overview' | 'config' | 'secrets';
+type ServerTab = 'overview' | 'config' | 'secrets' | 'permissions';
 type OverviewSubTab = 'info' | 'connection' | 'tools' | 'resources' | 'prompts';
 
 interface ServerDetailPageProps {
@@ -114,8 +116,9 @@ export function ServerDetailPage({ serverId, workspaceId, onBack }: ServerDetail
         const data = await response.json();
         setMetadata(data);
       }
-    } catch (error) {
-      console.error('Failed to fetch metadata:', error);
+      // 404 is expected when instance not ready yet - silently ignore
+    } catch {
+      // Network errors or timeouts - silently ignore, will retry on next status change
     }
     setIsLoadingMeta(false);
   };
@@ -239,6 +242,7 @@ export function ServerDetailPage({ serverId, workspaceId, onBack }: ServerDetail
     { id: 'overview', label: 'Overview', icon: <Info className="w-4 h-4" /> },
     { id: 'config', label: 'Config', icon: <Settings className="w-4 h-4" /> },
     { id: 'secrets', label: 'Secrets', icon: <Key className="w-4 h-4" /> },
+    { id: 'permissions', label: 'Permissions', icon: <Shield className="w-4 h-4" /> },
   ];
 
   // Overview subtabs
@@ -848,6 +852,19 @@ export function ServerDetailPage({ serverId, workspaceId, onBack }: ServerDetail
               serverName={server.displayName}
               workspaceId={workspaceId}
             />
+          </div>
+        )}
+
+        {/* Permissions Tab */}
+        {selectedTab === 'permissions' && (
+          <div className="flex-1 overflow-auto px-4 sm:px-6 py-6">
+            <div className="max-w-3xl mx-auto w-full">
+              <ServerPermissionsEditor
+                serverId={serverId}
+                workspaceId={workspaceId}
+                serverName={server.displayName}
+              />
+            </div>
           </div>
         )}
       </div>

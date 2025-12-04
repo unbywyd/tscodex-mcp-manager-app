@@ -12,8 +12,10 @@ import { ServerStore } from './stores/ServerStore';
 import { WorkspaceStore } from './stores/WorkspaceStore';
 import { SessionStore } from './stores/SessionStore';
 import { SecretStore } from './stores/SecretStore';
+import { McpToolsStore } from './stores/McpToolsStore';
 import { setupRoutes } from './api/routes';
 import { setupGateway } from './gateway';
+import { setupMcpToolsEndpoint } from './mcp-tools/endpoint';
 import type { ServerEvent, AppEvent } from '../shared/types';
 
 export class McpHost {
@@ -32,6 +34,7 @@ export class McpHost {
   private workspaceStore: WorkspaceStore;
   private sessionStore: SessionStore;
   private secretStore: SecretStore;
+  private mcpToolsStore: McpToolsStore;
 
   constructor() {
     this.router = createRouter();
@@ -41,6 +44,7 @@ export class McpHost {
     this.workspaceStore = new WorkspaceStore();
     this.sessionStore = new SessionStore();
     this.secretStore = new SecretStore();
+    this.mcpToolsStore = new McpToolsStore();
 
     // Initialize managers
     this.eventBus = new EventBus();
@@ -51,6 +55,8 @@ export class McpHost {
       this.serverStore,
       this.secretStore
     );
+    // Set workspace store for permission support
+    this.processManager.setWorkspaceStore(this.workspaceStore);
 
     // Setup middleware
     this.setupMiddleware();
@@ -94,6 +100,7 @@ export class McpHost {
     console.log('[McpHost] Loading stores...');
     await this.serverStore.load();
     await this.workspaceStore.load();
+    await this.mcpToolsStore.load();
     console.log('[McpHost] Stores loaded');
 
     // Setup API routes
@@ -102,6 +109,7 @@ export class McpHost {
       workspaceStore: this.workspaceStore,
       sessionStore: this.sessionStore,
       secretStore: this.secretStore,
+      mcpToolsStore: this.mcpToolsStore,
       processManager: this.processManager,
       portManager: this.portManager,
       eventBus: this.eventBus,
@@ -113,6 +121,12 @@ export class McpHost {
       workspaceStore: this.workspaceStore,
       sessionStore: this.sessionStore,
       processManager: this.processManager,
+    });
+
+    // Setup MCP Tools endpoint
+    setupMcpToolsEndpoint(this.router, {
+      mcpToolsStore: this.mcpToolsStore,
+      secretStore: this.secretStore,
     });
 
     // Error handler

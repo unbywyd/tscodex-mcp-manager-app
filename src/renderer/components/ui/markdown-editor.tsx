@@ -1,28 +1,6 @@
 import * as React from 'react';
-import { useEditor, EditorContent } from '@tiptap/react';
-import StarterKit from '@tiptap/starter-kit';
-import Placeholder from '@tiptap/extension-placeholder';
-import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
-import { common, createLowlight } from 'lowlight';
-import {
-  Bold,
-  Italic,
-  List,
-  ListOrdered,
-  Quote,
-  Undo,
-  Redo,
-  Code,
-  Heading1,
-  Heading2,
-  Heading3,
-  FileCode,
-  Eye,
-  Edit3,
-} from 'lucide-react';
+import { Eye, Edit3 } from 'lucide-react';
 import { cn } from '../../lib/utils';
-
-const lowlight = createLowlight(common);
 
 interface MarkdownEditorProps {
   value: string;
@@ -32,25 +10,65 @@ interface MarkdownEditorProps {
   disabled?: boolean;
 }
 
-// Convert HTML to simple markdown-like format for display
-function htmlToMarkdown(html: string): string {
-  return html
-    .replace(/<h1[^>]*>(.*?)<\/h1>/gi, '# $1\n')
-    .replace(/<h2[^>]*>(.*?)<\/h2>/gi, '## $1\n')
-    .replace(/<h3[^>]*>(.*?)<\/h3>/gi, '### $1\n')
-    .replace(/<strong[^>]*>(.*?)<\/strong>/gi, '**$1**')
-    .replace(/<b[^>]*>(.*?)<\/b>/gi, '**$1**')
-    .replace(/<em[^>]*>(.*?)<\/em>/gi, '*$1*')
-    .replace(/<i[^>]*>(.*?)<\/i>/gi, '*$1*')
-    .replace(/<code[^>]*>(.*?)<\/code>/gi, '`$1`')
-    .replace(/<blockquote[^>]*>(.*?)<\/blockquote>/gi, '> $1\n')
-    .replace(/<li[^>]*>(.*?)<\/li>/gi, '- $1\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&amp;/g, '&')
-    .trim();
+// Simple markdown to HTML converter for preview
+function markdownToHtml(markdown: string): string {
+  if (!markdown.trim()) return '';
+
+  let html = markdown;
+
+  // Escape HTML special chars first (but preserve our markdown)
+  html = html
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  // Code blocks (must be before other processing)
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
+    return `<pre><code class="language-${lang}">${code.trim()}</code></pre>`;
+  });
+
+  // Inline code (before other inline elements)
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+  // Headings
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+
+  // Bold and italic
+  html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+
+  // Blockquotes
+  html = html.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
+
+  // Unordered lists - collect consecutive items
+  html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/(<li>[\s\S]*?<\/li>)(\n<li>[\s\S]*?<\/li>)*/g, (match) => {
+    return '<ul>' + match.replace(/\n/g, '') + '</ul>';
+  });
+
+  // Ordered lists
+  html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+
+  // Links
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="text-blue-400 underline">$1</a>');
+
+  // Paragraphs - split by double newlines, wrap non-block content
+  const blocks = html.split(/\n\n+/);
+  html = blocks.map(block => {
+    block = block.trim();
+    if (!block) return '';
+    // Don't wrap if already a block element
+    if (/^<(h[1-6]|ul|ol|li|pre|blockquote|div)/.test(block)) {
+      return block;
+    }
+    // Replace single newlines with <br> inside paragraphs
+    return '<p>' + block.replace(/\n/g, '<br>') + '</p>';
+  }).join('\n');
+
+  return html;
 }
 
 export function MarkdownEditor({
@@ -62,164 +80,13 @@ export function MarkdownEditor({
 }: MarkdownEditorProps) {
   const [mode, setMode] = React.useState<'edit' | 'preview'>('edit');
 
-  const editor = useEditor({
-    extensions: [
-      StarterKit.configure({
-        codeBlock: false,
-      }),
-      CodeBlockLowlight.configure({
-        lowlight,
-      }),
-      Placeholder.configure({
-        placeholder,
-      }),
-    ],
-    content: value,
-    editable: !disabled && mode === 'edit',
-    onUpdate: ({ editor }) => {
-      onChange(editor.getHTML());
-    },
-  });
-
-  React.useEffect(() => {
-    if (editor && value !== editor.getHTML()) {
-      editor.commands.setContent(value);
-    }
-  }, [value, editor]);
-
-  React.useEffect(() => {
-    if (editor) {
-      editor.setEditable(!disabled && mode === 'edit');
-    }
-  }, [mode, disabled, editor]);
-
-  if (!editor) {
-    return null;
-  }
-
-  const ToolbarButton = ({
-    onClick,
-    isActive,
-    children,
-    title,
-  }: {
-    onClick: () => void;
-    isActive?: boolean;
-    children: React.ReactNode;
-    title: string;
-  }) => (
-    <button
-      type="button"
-      onClick={onClick}
-      title={title}
-      className={cn(
-        'p-1.5 rounded hover:bg-bg-hover transition-colors',
-        isActive && 'bg-bg-hover text-white'
-      )}
-    >
-      {children}
-    </button>
-  );
-
   return (
     <div className={cn('border border-border-default rounded-md overflow-hidden', className)}>
       {/* Toolbar */}
       <div className="flex items-center gap-0.5 p-2 border-b border-border-default bg-bg-secondary">
-        {mode === 'edit' && (
-          <>
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleBold().run()}
-              isActive={editor.isActive('bold')}
-              title="Bold (**text**)"
-            >
-              <Bold className="w-4 h-4" />
-            </ToolbarButton>
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleItalic().run()}
-              isActive={editor.isActive('italic')}
-              title="Italic (*text*)"
-            >
-              <Italic className="w-4 h-4" />
-            </ToolbarButton>
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleCode().run()}
-              isActive={editor.isActive('code')}
-              title="Inline Code (`code`)"
-            >
-              <Code className="w-4 h-4" />
-            </ToolbarButton>
-
-            <div className="w-px h-5 bg-border-default mx-1" />
-
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
-              isActive={editor.isActive('heading', { level: 1 })}
-              title="Heading 1 (#)"
-            >
-              <Heading1 className="w-4 h-4" />
-            </ToolbarButton>
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
-              isActive={editor.isActive('heading', { level: 2 })}
-              title="Heading 2 (##)"
-            >
-              <Heading2 className="w-4 h-4" />
-            </ToolbarButton>
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
-              isActive={editor.isActive('heading', { level: 3 })}
-              title="Heading 3 (###)"
-            >
-              <Heading3 className="w-4 h-4" />
-            </ToolbarButton>
-
-            <div className="w-px h-5 bg-border-default mx-1" />
-
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleBulletList().run()}
-              isActive={editor.isActive('bulletList')}
-              title="Bullet List (-)"
-            >
-              <List className="w-4 h-4" />
-            </ToolbarButton>
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleOrderedList().run()}
-              isActive={editor.isActive('orderedList')}
-              title="Ordered List (1.)"
-            >
-              <ListOrdered className="w-4 h-4" />
-            </ToolbarButton>
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleBlockquote().run()}
-              isActive={editor.isActive('blockquote')}
-              title="Quote (>)"
-            >
-              <Quote className="w-4 h-4" />
-            </ToolbarButton>
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleCodeBlock().run()}
-              isActive={editor.isActive('codeBlock')}
-              title="Code Block (```)"
-            >
-              <FileCode className="w-4 h-4" />
-            </ToolbarButton>
-
-            <div className="w-px h-5 bg-border-default mx-1" />
-
-            <ToolbarButton
-              onClick={() => editor.chain().focus().undo().run()}
-              title="Undo"
-            >
-              <Undo className="w-4 h-4" />
-            </ToolbarButton>
-            <ToolbarButton
-              onClick={() => editor.chain().focus().redo().run()}
-              title="Redo"
-            >
-              <Redo className="w-4 h-4" />
-            </ToolbarButton>
-          </>
-        )}
+        <span className="text-xs text-gray-500 px-2">
+          Supports: # headings, **bold**, *italic*, `code`, - lists, {'>'} quotes
+        </span>
 
         <div className="flex-1" />
 
@@ -252,16 +119,18 @@ export function MarkdownEditor({
 
       {/* Editor/Preview Content */}
       {mode === 'edit' ? (
-        <EditorContent
-          editor={editor}
-          className="prose prose-invert prose-sm max-w-none p-3 min-h-[150px] focus:outline-none [&_.ProseMirror]:outline-none [&_.ProseMirror]:min-h-[120px] [&_.ProseMirror_p.is-editor-empty:first-child::before]:text-gray-500 [&_.ProseMirror_p.is-editor-empty:first-child::before]:content-[attr(data-placeholder)] [&_.ProseMirror_p.is-editor-empty:first-child::before]:float-left [&_.ProseMirror_p.is-editor-empty:first-child::before]:pointer-events-none [&_.ProseMirror_p.is-editor-empty:first-child::before]:h-0 [&_.ProseMirror_pre]:bg-bg-tertiary [&_.ProseMirror_pre]:p-3 [&_.ProseMirror_pre]:rounded"
+        <textarea
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          disabled={disabled}
+          className="w-full p-3 bg-bg-secondary text-white placeholder-gray-400 font-mono text-sm min-h-[150px] resize-y focus:outline-none"
         />
       ) : (
-        <div className="p-3 min-h-[150px]">
-          <pre className="whitespace-pre-wrap font-mono text-sm text-gray-300 bg-bg-tertiary p-3 rounded">
-            {htmlToMarkdown(editor.getHTML())}
-          </pre>
-        </div>
+        <div
+          className="prose prose-invert prose-sm max-w-none p-3 min-h-[150px] [&_pre]:bg-bg-tertiary [&_pre]:p-3 [&_pre]:rounded [&_code]:bg-bg-tertiary [&_code]:px-1 [&_code]:rounded [&_blockquote]:border-l-2 [&_blockquote]:border-gray-500 [&_blockquote]:pl-3 [&_blockquote]:italic"
+          dangerouslySetInnerHTML={{ __html: markdownToHtml(value) }}
+        />
       )}
     </div>
   );

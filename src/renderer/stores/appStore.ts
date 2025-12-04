@@ -20,6 +20,16 @@ let wsReconnectTimeout: ReturnType<typeof setTimeout> | null = null;
 const WS_MAX_RECONNECT_DELAY = 30000; // Max 30 seconds between attempts
 const WS_BASE_RECONNECT_DELAY = 1000; // Start with 1 second
 
+// Track servers with pending operations to prevent race conditions
+// Maps serverId to { expectedStatus, timestamp } for timeout handling
+interface PendingOp {
+  expectedStatus: 'starting' | 'running' | 'stopped';
+  timestamp: number;
+}
+const pendingOperations = new Map<string, PendingOp>();
+const PENDING_TIMEOUT_MS = 5000; // Clear pending after 5 seconds regardless
+let lastFetchTimestamp = 0;
+
 // Debounce helper
 function debounce<T extends (...args: unknown[]) => unknown>(
   fn: T,
@@ -214,8 +224,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     }, 300);
 
     return (event: ServerEvent | AppEvent) => {
-      console.log('Event received:', event);
-
       // Refresh data based on event type (debounced to prevent flooding)
       if ('serverId' in event) {
         // Server event - use debounced fetch
@@ -233,24 +241,57 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // Fetch servers (with status filtered by selected workspace)
   fetchServers: async () => {
+    const fetchTimestamp = Date.now();
+    lastFetchTimestamp = fetchTimestamp;
+
     try {
       const workspaceId = get().selectedWorkspaceId;
       const url = workspaceId && workspaceId !== 'global'
         ? `${API_BASE}/servers?workspaceId=${encodeURIComponent(workspaceId)}`
         : `${API_BASE}/servers`;
 
-      console.log(`[AppStore] fetchServers: workspaceId=${workspaceId}, url=${url}`);
-
       const response = await fetch(url);
       const data = await response.json();
 
+      // Check if this fetch is still the latest (prevent stale data from overwriting newer data)
+      if (lastFetchTimestamp !== fetchTimestamp) {
+        return;
+      }
+
       if (data.success) {
-        console.log(`[AppStore] fetchServers: got ${data.servers.length} servers, statuses:`,
-          data.servers.map((s: ServerInfo) => `${s.displayName}=${s.status}`));
-        set({ servers: data.servers });
+        const fetchedServers = data.servers as ServerInfo[];
+
+        // Merge fetched servers with current state, handling pending operations
+        const now = Date.now();
+        set((state) => {
+          const mergedServers = fetchedServers.map((fetched) => {
+            const pending = pendingOperations.get(fetched.id);
+            if (pending) {
+              const elapsed = now - pending.timestamp;
+              // Server has pending operation
+              if (fetched.status === pending.expectedStatus) {
+                // Backend status matches expected - operation complete, clear pending
+                pendingOperations.delete(fetched.id);
+                return fetched;
+              } else if (elapsed > PENDING_TIMEOUT_MS) {
+                // Timeout - clear pending and accept backend status
+                pendingOperations.delete(fetched.id);
+                return fetched;
+              } else {
+                // Backend status doesn't match expected yet - preserve optimistic status
+                const current = state.servers.find((s) => s.id === fetched.id);
+                if (current) {
+                  return { ...fetched, status: current.status };
+                }
+              }
+            }
+            return fetched;
+          });
+          return { servers: mergedServers };
+        });
 
         // Update tray with running servers count
-        const runningCount = (data.servers as ServerInfo[]).filter(
+        const runningCount = fetchedServers.filter(
           (s) => s.status === 'running'
         ).length;
         window.electronAPI?.updateServersCount(runningCount);
@@ -346,15 +387,25 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  // Start server
+  // Start server (always starts in global context)
   startServer: async (serverId: string) => {
+    // Mark as pending - we expect 'running' status after operation
+    pendingOperations.set(serverId, { expectedStatus: 'running', timestamp: Date.now() });
+
+    // Optimistic update: set status to 'starting' immediately
+    set((state) => ({
+      servers: state.servers.map((s) =>
+        s.id === serverId ? { ...s, status: 'starting' as const } : s
+      ),
+    }));
+
     try {
       const response = await fetch(`${API_BASE}/instances/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           serverId,
-          workspaceId: get().selectedWorkspaceId,
+          workspaceId: 'global',
         }),
       });
 
@@ -363,22 +414,45 @@ export const useAppStore = create<AppState>((set, get) => ({
         throw new Error(data.error);
       }
 
+      // Fetch latest state after operation completes
       await get().fetchServers();
     } catch (error) {
       console.error('Failed to start server:', error);
+      // Revert optimistic update on error and clear pending
+      pendingOperations.delete(serverId);
+      set((state) => ({
+        servers: state.servers.map((s) =>
+          s.id === serverId ? { ...s, status: 'stopped' as const } : s
+        ),
+      }));
       throw error;
     }
+    // Note: pendingOperations is cleared by fetchServers when status matches or times out
   },
 
-  // Stop server
+  // Stop server (always stops global instance)
   stopServer: async (serverId: string) => {
+    // Mark as pending - we expect 'stopped' status after operation
+    pendingOperations.set(serverId, { expectedStatus: 'stopped', timestamp: Date.now() });
+
+    // Get current status for potential rollback
+    const currentServer = get().servers.find((s) => s.id === serverId);
+    const previousStatus = currentServer?.status || 'running';
+
+    // Optimistic update: set status to 'stopped' immediately
+    set((state) => ({
+      servers: state.servers.map((s) =>
+        s.id === serverId ? { ...s, status: 'stopped' as const } : s
+      ),
+    }));
+
     try {
       const response = await fetch(`${API_BASE}/instances/stop`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           serverId,
-          workspaceId: get().selectedWorkspaceId,
+          workspaceId: 'global',
         }),
       });
 
@@ -387,22 +461,41 @@ export const useAppStore = create<AppState>((set, get) => ({
         throw new Error(data.error);
       }
 
+      // Fetch latest state after operation completes
       await get().fetchServers();
     } catch (error) {
       console.error('Failed to stop server:', error);
+      // Revert optimistic update on error and clear pending
+      pendingOperations.delete(serverId);
+      set((state) => ({
+        servers: state.servers.map((s) =>
+          s.id === serverId ? { ...s, status: previousStatus } : s
+        ),
+      }));
       throw error;
     }
+    // Note: pendingOperations is cleared by fetchServers when status matches or times out
   },
 
-  // Restart server
+  // Restart server (always restarts global instance)
   restartServer: async (serverId: string) => {
+    // Mark as pending - we expect 'running' status after restart
+    pendingOperations.set(serverId, { expectedStatus: 'running', timestamp: Date.now() });
+
+    // Optimistic update: set status to 'starting' immediately (restarting)
+    set((state) => ({
+      servers: state.servers.map((s) =>
+        s.id === serverId ? { ...s, status: 'starting' as const } : s
+      ),
+    }));
+
     try {
       const response = await fetch(`${API_BASE}/instances/restart`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           serverId,
-          workspaceId: get().selectedWorkspaceId,
+          workspaceId: 'global',
         }),
       });
 
@@ -411,11 +504,16 @@ export const useAppStore = create<AppState>((set, get) => ({
         throw new Error(data.error);
       }
 
+      // Fetch latest state after operation completes
       await get().fetchServers();
     } catch (error) {
       console.error('Failed to restart server:', error);
+      // On error, clear pending and fetch current state to get correct status
+      pendingOperations.delete(serverId);
+      await get().fetchServers();
       throw error;
     }
+    // Note: pendingOperations is cleared by fetchServers when status matches or times out
   },
 
   // Restart all running servers (useful after changing global secrets)

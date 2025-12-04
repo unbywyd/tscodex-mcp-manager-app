@@ -82,30 +82,18 @@ async function handleGatewayRequest(
       return;
     }
 
-    // Get or start server instance
-    let instance = ctx.processManager.getInstance(serverId, workspaceId);
+    // Get server instance - NO lazy start!
+    // Servers must be started manually by user. Gateway only proxies to running servers.
+    const instance = ctx.processManager.getInstance(serverId, GLOBAL_WORKSPACE_ID);
 
     if (!instance || instance.status !== 'running') {
-      // Lazy start: automatically start the server
-      try {
-        instance = await ctx.processManager.start(
-          serverId,
-          workspaceId,
-          workspace?.projectRoot,
-          {
-            ...server.defaultConfig,
-            ...wsConfig?.configOverride,
-          }
-        );
-      } catch (error) {
-        res.status(503).json({
-          error: 'Failed to start server',
-          message: error instanceof Error ? error.message : 'Unknown error',
-          serverId,
-          workspaceId,
-        });
-        return;
-      }
+      res.status(503).json({
+        error: 'Server is not running',
+        message: 'Please start the server manually in MCP Manager',
+        serverId,
+        workspaceId,
+      });
+      return;
     }
 
     if (!instance.port) {

@@ -1,9 +1,16 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import { Globe, Folder, Plus, MoreVertical, Trash2, Pencil, HelpCircle, RotateCcw } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { CreateWorkspaceModal } from '../workspaces/CreateWorkspaceModal';
 import { EditWorkspaceModal } from '../workspaces/EditWorkspaceModal';
 import { AboutModal } from './AboutModal';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '../ui/dropdown-menu';
 import type { WorkspaceConfig } from '../../../shared/types';
 
 export function Sidebar() {
@@ -17,48 +24,26 @@ export function Sidebar() {
     resetWorkspace,
   } = useAppStore();
 
-  const [showMenu, setShowMenu] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showAboutModal, setShowAboutModal] = useState(false);
   const [editingWorkspace, setEditingWorkspace] = useState<WorkspaceConfig | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
 
-  // Close menu when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setShowMenu(null);
-      }
-    };
-
-    if (showMenu) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [showMenu]);
-
-  const handleEdit = (ws: WorkspaceConfig, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleEdit = (ws: WorkspaceConfig) => {
     setEditingWorkspace(ws);
     setShowEditModal(true);
-    setShowMenu(null);
   };
 
-  const handleDelete = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleDelete = async (id: string) => {
     if (confirm('Are you sure you want to delete this workspace? Server configurations for this workspace will be lost.')) {
       await deleteWorkspace(id);
     }
-    setShowMenu(null);
   };
 
-  const handleReset = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleReset = async (id: string) => {
     if (confirm('Reset this workspace to Global defaults? All server configuration overrides will be cleared.')) {
       await resetWorkspace(id);
     }
-    setShowMenu(null);
   };
 
   const handleCreateWorkspace = async (label: string, projectRoot: string) => {
@@ -104,7 +89,7 @@ export function Sidebar() {
 
           {/* User workspaces */}
           {workspaces.map((ws) => (
-            <div key={ws.id} className="relative group" ref={showMenu === ws.id ? menuRef : undefined}>
+            <div key={ws.id} className="relative group">
               <button
                 onClick={() => setSelectedWorkspace(ws.id)}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-left transition-colors ${
@@ -124,44 +109,34 @@ export function Sidebar() {
                 </div>
               </button>
 
-              {/* Menu button */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowMenu(showMenu === ws.id ? null : ws.id);
-                }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-bg-tertiary transition-all"
-              >
-                <MoreVertical className="w-4 h-4" />
-              </button>
-
-              {/* Dropdown menu */}
-              {showMenu === ws.id && (
-                <div className="absolute right-0 top-full mt-1 z-10 bg-bg-card border border-border-default rounded-md shadow-lg py-1 min-w-36">
+              {/* Dropdown menu with portal */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
                   <button
-                    onClick={(e) => handleEdit(ws, e)}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:bg-bg-hover"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-bg-tertiary transition-all"
                   >
-                    <Pencil className="w-4 h-4" />
+                    <MoreVertical className="w-4 h-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" sideOffset={4}>
+                  <DropdownMenuItem onClick={() => handleEdit(ws)}>
+                    <Pencil className="w-4 h-4 mr-2" />
                     Edit
-                  </button>
-                  <button
-                    onClick={(e) => handleReset(ws.id, e)}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:bg-bg-hover"
-                  >
-                    <RotateCcw className="w-4 h-4" />
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleReset(ws.id)}>
+                    <RotateCcw className="w-4 h-4 mr-2" />
                     Reset to Global
-                  </button>
-                  <div className="my-1 border-t border-border-default" />
-                  <button
-                    onClick={(e) => handleDelete(ws.id, e)}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-bg-hover"
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => handleDelete(ws.id)}
+                    className="text-red-400 focus:text-red-400"
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Trash2 className="w-4 h-4 mr-2" />
                     Delete
-                  </button>
-                </div>
-              )}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           ))}
         </div>

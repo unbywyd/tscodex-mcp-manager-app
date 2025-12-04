@@ -1,20 +1,29 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Plus, Server, RotateCcw, Loader2 } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
+import { useMcpToolsStore } from '../../stores/mcpToolsStore';
 import { ServerCard } from './ServerCard';
+import { McpToolsCard } from './McpToolsCard';
 import { AddServerFlow } from './AddServerFlow';
 
 interface ServerListProps {
   workspaceId: string;
   onOpenServerDetails?: (serverId: string) => void;
+  onOpenMcpTools?: () => void;
 }
 
-export function ServerList({ workspaceId, onOpenServerDetails }: ServerListProps) {
+export function ServerList({ workspaceId, onOpenServerDetails, onOpenMcpTools }: ServerListProps) {
   const { servers, isLoading, fetchServers, restartAllServers, restartServer, isServerEnabledForWorkspace } = useAppStore();
+  const { fetchStatus: fetchMcpToolsStatus } = useMcpToolsStore();
   const [showAddServer, setShowAddServer] = useState(false);
   const [isRestarting, setIsRestarting] = useState(false);
 
   const isGlobalWorkspace = workspaceId === 'global';
+
+  // Fetch MCP Tools status on mount
+  useEffect(() => {
+    fetchMcpToolsStatus();
+  }, [fetchMcpToolsStatus]);
 
   // For global: count all running servers
   // For workspace: count running servers that are enabled for this workspace
@@ -57,33 +66,42 @@ export function ServerList({ workspaceId, onOpenServerDetails }: ServerListProps
     );
   }
 
-  // Empty state
+  // Empty state - still show MCP Tools card
   if (servers.length === 0) {
     return (
       <>
-        <div className="flex items-center justify-center min-h-[500px]">
-          <div className="text-center max-w-md">
-            <div className="mb-6 flex justify-center">
-              <div className="relative">
-                <div className="absolute inset-0 bg-primary/20 blur-2xl rounded-full"></div>
-                <div className="relative bg-bg-secondary border border-border-default rounded-2xl p-8">
-                  <Server className="w-16 h-16 text-gray-400 mx-auto" />
+        <div className="space-y-6">
+          {/* MCP Tools card - always shown first */}
+          <McpToolsCard
+            workspaceId={workspaceId}
+            onOpenDetails={onOpenMcpTools}
+          />
+
+          {/* Empty state for external servers */}
+          <div className="flex items-center justify-center min-h-[400px]">
+            <div className="text-center max-w-md">
+              <div className="mb-6 flex justify-center">
+                <div className="relative">
+                  <div className="absolute inset-0 bg-primary/20 blur-2xl rounded-full"></div>
+                  <div className="relative bg-bg-secondary border border-border-default rounded-2xl p-8">
+                    <Server className="w-16 h-16 text-gray-400 mx-auto" />
+                  </div>
                 </div>
               </div>
+              <h3 className="text-xl font-semibold text-white mb-2">
+                No External MCP Servers Yet
+              </h3>
+              <p className="text-gray-400 mb-6 leading-relaxed">
+                Add external MCP servers to connect to more tools and resources.
+              </p>
+              <button
+                onClick={() => setShowAddServer(true)}
+                className="btn btn-primary flex items-center mx-auto"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Add MCP Server
+              </button>
             </div>
-            <h3 className="text-xl font-semibold text-white mb-2">
-              No MCP Servers Yet
-            </h3>
-            <p className="text-gray-400 mb-6 leading-relaxed">
-              Get started by adding your first MCP server. Connect to powerful tools and resources to enhance your workflow.
-            </p>
-            <button
-              onClick={() => setShowAddServer(true)}
-              className="btn btn-primary flex items-center mx-auto"
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              Add Your First Server
-            </button>
           </div>
         </div>
 
@@ -125,6 +143,12 @@ export function ServerList({ workspaceId, onOpenServerDetails }: ServerListProps
             )}
           </button>
         </div>
+
+        {/* MCP Tools card - always shown first */}
+        <McpToolsCard
+          workspaceId={workspaceId}
+          onOpenDetails={onOpenMcpTools}
+        />
 
         {/* Server cards */}
         {servers.map((server) => (

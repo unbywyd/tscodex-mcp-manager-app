@@ -4,6 +4,7 @@ import { useAppStore } from '../../stores/appStore';
 import { ServerList } from '../servers/ServerList';
 import { SecretsView } from '../secrets/SecretsView';
 import { ServerDetailPage } from '../servers/ServerDetailPage';
+import { McpToolsPage } from '../mcp-tools';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,6 +23,7 @@ interface MainContentProps {
 export function MainContent({ workspaceId }: MainContentProps) {
   const { selectedTab, setSelectedTab, workspaces, resetWorkspaceSecrets } = useAppStore();
   const [selectedServerId, setSelectedServerId] = useState<string | null>(null);
+  const [showMcpTools, setShowMcpTools] = useState(false);
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
 
@@ -45,6 +47,13 @@ export function MainContent({ workspaceId }: MainContentProps) {
       setIsResetting(false);
     }
   };
+
+  // If MCP Tools is selected, show its page
+  if (showMcpTools) {
+    return (
+      <McpToolsPage onBack={() => setShowMcpTools(false)} />
+    );
+  }
 
   // If a server is selected, show its detail page
   if (selectedServerId) {
@@ -127,6 +136,7 @@ export function MainContent({ workspaceId }: MainContentProps) {
           <ServerList
             workspaceId={workspaceId}
             onOpenServerDetails={setSelectedServerId}
+            onOpenMcpTools={() => setShowMcpTools(true)}
           />
         ) : (
           <SecretsView workspaceId={workspaceId} />

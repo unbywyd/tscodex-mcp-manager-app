@@ -40,6 +40,10 @@ export class EventBus {
       ...event,
       timestamp: Date.now(),
     };
+    // Only log important events (not logs)
+    if (fullEvent.type !== 'server-log') {
+      console.log(`[EventBus] ${fullEvent.type}: ${fullEvent.serverId} (${fullEvent.workspaceId})`);
+    }
     this.emitter.emit('server-event', fullEvent);
   }
 
