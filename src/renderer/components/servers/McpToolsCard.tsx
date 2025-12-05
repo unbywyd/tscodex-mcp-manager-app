@@ -56,13 +56,20 @@ export function McpToolsCard({ workspaceId, onOpenDetails }: McpToolsCardProps) 
 
   return (
     <div
-      className={`card p-4 relative group cursor-pointer hover:border-border-hover transition-colors border-l-4 border-l-purple-500 ${cardOpacity}`}
+      className={`card p-4 relative group cursor-pointer hover:border-border-hover transition-colors border-l-4 border-l-teal-500 ${cardOpacity} overflow-hidden`}
       onClick={handleCardClick}
+      style={{
+        background: `
+          radial-gradient(circle at 90% 80%, rgba(15, 118, 110, 0.12) 0%, transparent 50%),
+          radial-gradient(circle at 75% 60%, rgba(19, 78, 74, 0.1) 0%, transparent 45%),
+          #1f1f1f
+        `,
+      }}
     >
       <div className="flex items-start gap-4">
         {/* Icon */}
-        <div className="w-10 h-10 rounded-lg bg-purple-900/30 flex items-center justify-center flex-shrink-0">
-          <Sparkles className="w-5 h-5 text-purple-400" />
+        <div className="w-10 h-10 rounded-lg bg-teal-900/30 flex items-center justify-center flex-shrink-0">
+          <Sparkles className="w-5 h-5 text-teal-400" />
         </div>
 
         {/* Content */}
@@ -70,7 +77,7 @@ export function McpToolsCard({ workspaceId, onOpenDetails }: McpToolsCardProps) 
           {/* Header */}
           <div className="flex items-center gap-3">
             <h3 className="font-medium truncate">MCP Tools</h3>
-            <span className="px-1.5 py-0.5 text-xs font-medium rounded bg-purple-900/50 text-purple-400">
+            <span className="px-1.5 py-0.5 text-xs font-medium rounded bg-teal-900/50 text-teal-400">
               Built-in
             </span>
             <div className="flex items-center gap-1.5">

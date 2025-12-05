@@ -21,8 +21,10 @@ import type {
   ImportOptions,
   ImportResult,
 } from '../../host/mcp-tools/types';
+import { getApiBase } from '../lib/api';
 
-const API_BASE = 'http://127.0.0.1:4040/api/mcp-tools';
+// Dynamic API base that uses the current host port
+const getApiBaseMcpTools = () => `${getApiBase()}/mcp-tools`;
 
 interface McpToolsState {
   // Data
@@ -119,7 +121,7 @@ export const useMcpToolsStore = create<McpToolsState>((set, get) => ({
   // Fetch status
   fetchStatus: async () => {
     try {
-      const response = await fetch(`${API_BASE}/status`);
+      const response = await fetch(`${getApiBaseMcpTools()}/status`);
       const data = await response.json();
       if (data.success) {
         set({ status: data.data });
@@ -132,7 +134,7 @@ export const useMcpToolsStore = create<McpToolsState>((set, get) => ({
   // Fetch tools
   fetchTools: async () => {
     try {
-      const response = await fetch(`${API_BASE}/tools`);
+      const response = await fetch(`${getApiBaseMcpTools()}/tools`);
       const data = await response.json();
       if (data.success) {
         set({ tools: data.data });
@@ -145,7 +147,7 @@ export const useMcpToolsStore = create<McpToolsState>((set, get) => ({
   // Fetch prompts
   fetchPrompts: async () => {
     try {
-      const response = await fetch(`${API_BASE}/prompts`);
+      const response = await fetch(`${getApiBaseMcpTools()}/prompts`);
       const data = await response.json();
       if (data.success) {
         set({ prompts: data.data });
@@ -158,7 +160,7 @@ export const useMcpToolsStore = create<McpToolsState>((set, get) => ({
   // Fetch resources
   fetchResources: async () => {
     try {
-      const response = await fetch(`${API_BASE}/resources`);
+      const response = await fetch(`${getApiBaseMcpTools()}/resources`);
       const data = await response.json();
       if (data.success) {
         set({ resources: data.data });
@@ -188,7 +190,7 @@ export const useMcpToolsStore = create<McpToolsState>((set, get) => ({
   // Enable MCP Tools
   enable: async () => {
     try {
-      const response = await fetch(`${API_BASE}/enable`, { method: 'POST' });
+      const response = await fetch(`${getApiBaseMcpTools()}/enable`, { method: 'POST' });
       const data = await response.json();
       if (data.success) {
         await get().fetchStatus();
@@ -204,7 +206,7 @@ export const useMcpToolsStore = create<McpToolsState>((set, get) => ({
   // Disable MCP Tools
   disable: async () => {
     try {
-      const response = await fetch(`${API_BASE}/disable`, { method: 'POST' });
+      const response = await fetch(`${getApiBaseMcpTools()}/disable`, { method: 'POST' });
       const data = await response.json();
       if (data.success) {
         await get().fetchStatus();
@@ -219,7 +221,7 @@ export const useMcpToolsStore = create<McpToolsState>((set, get) => ({
 
   // Create tool
   createTool: async (data: CreateToolRequest) => {
-    const response = await fetch(`${API_BASE}/tools`, {
+    const response = await fetch(`${getApiBaseMcpTools()}/tools`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -235,7 +237,7 @@ export const useMcpToolsStore = create<McpToolsState>((set, get) => ({
 
   // Update tool
   updateTool: async (id: string, data: UpdateToolRequest) => {
-    const response = await fetch(`${API_BASE}/tools/${id}`, {
+    const response = await fetch(`${getApiBaseMcpTools()}/tools/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -251,7 +253,7 @@ export const useMcpToolsStore = create<McpToolsState>((set, get) => ({
 
   // Delete tool
   deleteTool: async (id: string) => {
-    const response = await fetch(`${API_BASE}/tools/${id}`, {
+    const response = await fetch(`${getApiBaseMcpTools()}/tools/${id}`, {
       method: 'DELETE',
     });
     const result = await response.json();
@@ -264,7 +266,7 @@ export const useMcpToolsStore = create<McpToolsState>((set, get) => ({
 
   // Toggle tool
   toggleTool: async (id: string) => {
-    const response = await fetch(`${API_BASE}/tools/${id}/toggle`, {
+    const response = await fetch(`${getApiBaseMcpTools()}/tools/${id}/toggle`, {
       method: 'POST',
     });
     const result = await response.json();
@@ -277,7 +279,7 @@ export const useMcpToolsStore = create<McpToolsState>((set, get) => ({
 
   // Create prompt
   createPrompt: async (data: CreatePromptRequest) => {
-    const response = await fetch(`${API_BASE}/prompts`, {
+    const response = await fetch(`${getApiBaseMcpTools()}/prompts`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -293,7 +295,7 @@ export const useMcpToolsStore = create<McpToolsState>((set, get) => ({
 
   // Update prompt
   updatePrompt: async (id: string, data: UpdatePromptRequest) => {
-    const response = await fetch(`${API_BASE}/prompts/${id}`, {
+    const response = await fetch(`${getApiBaseMcpTools()}/prompts/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -309,7 +311,7 @@ export const useMcpToolsStore = create<McpToolsState>((set, get) => ({
 
   // Delete prompt
   deletePrompt: async (id: string) => {
-    const response = await fetch(`${API_BASE}/prompts/${id}`, {
+    const response = await fetch(`${getApiBaseMcpTools()}/prompts/${id}`, {
       method: 'DELETE',
     });
     const result = await response.json();
@@ -322,7 +324,7 @@ export const useMcpToolsStore = create<McpToolsState>((set, get) => ({
 
   // Toggle prompt
   togglePrompt: async (id: string) => {
-    const response = await fetch(`${API_BASE}/prompts/${id}/toggle`, {
+    const response = await fetch(`${getApiBaseMcpTools()}/prompts/${id}/toggle`, {
       method: 'POST',
     });
     const result = await response.json();
@@ -335,7 +337,7 @@ export const useMcpToolsStore = create<McpToolsState>((set, get) => ({
 
   // Create resource
   createResource: async (data: CreateResourceRequest) => {
-    const response = await fetch(`${API_BASE}/resources`, {
+    const response = await fetch(`${getApiBaseMcpTools()}/resources`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -351,7 +353,7 @@ export const useMcpToolsStore = create<McpToolsState>((set, get) => ({
 
   // Update resource
   updateResource: async (id: string, data: UpdateResourceRequest) => {
-    const response = await fetch(`${API_BASE}/resources/${id}`, {
+    const response = await fetch(`${getApiBaseMcpTools()}/resources/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -367,7 +369,7 @@ export const useMcpToolsStore = create<McpToolsState>((set, get) => ({
 
   // Delete resource
   deleteResource: async (id: string) => {
-    const response = await fetch(`${API_BASE}/resources/${id}`, {
+    const response = await fetch(`${getApiBaseMcpTools()}/resources/${id}`, {
       method: 'DELETE',
     });
     const result = await response.json();
@@ -380,7 +382,7 @@ export const useMcpToolsStore = create<McpToolsState>((set, get) => ({
 
   // Toggle resource
   toggleResource: async (id: string) => {
-    const response = await fetch(`${API_BASE}/resources/${id}/toggle`, {
+    const response = await fetch(`${getApiBaseMcpTools()}/resources/${id}/toggle`, {
       method: 'POST',
     });
     const result = await response.json();
@@ -393,7 +395,7 @@ export const useMcpToolsStore = create<McpToolsState>((set, get) => ({
 
   // Validate name
   validateName: async (name: string, entityType: EntityType, excludeId?: string) => {
-    const response = await fetch(`${API_BASE}/validate/name`, {
+    const response = await fetch(`${getApiBaseMcpTools()}/validate/name`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, entityType, excludeId }),
@@ -407,7 +409,7 @@ export const useMcpToolsStore = create<McpToolsState>((set, get) => ({
 
   // Validate schema
   validateSchema: async (schema: JsonSchema) => {
-    const response = await fetch(`${API_BASE}/validate/schema`, {
+    const response = await fetch(`${getApiBaseMcpTools()}/validate/schema`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ schema }),
@@ -421,7 +423,7 @@ export const useMcpToolsStore = create<McpToolsState>((set, get) => ({
 
   // Validate function
   validateFunction: async (code: string) => {
-    const response = await fetch(`${API_BASE}/validate/function`, {
+    const response = await fetch(`${getApiBaseMcpTools()}/validate/function`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code }),
@@ -502,7 +504,7 @@ export const useMcpToolsStore = create<McpToolsState>((set, get) => ({
   // Export data
   exportData: async (types?: ('tools' | 'prompts' | 'resources')[]) => {
     const typesParam = types ? types.join(',') : undefined;
-    const url = typesParam ? `${API_BASE}/export?types=${typesParam}` : `${API_BASE}/export`;
+    const url = typesParam ? `${getApiBaseMcpTools()}/export?types=${typesParam}` : `${getApiBaseMcpTools()}/export`;
     const response = await fetch(url);
     if (!response.ok) {
       const result = await response.json();
@@ -544,7 +546,7 @@ export const useMcpToolsStore = create<McpToolsState>((set, get) => ({
 
   // Import data
   importData: async (data: ExportData, options: ImportOptions) => {
-    const response = await fetch(`${API_BASE}/import`, {
+    const response = await fetch(`${getApiBaseMcpTools()}/import`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ data, options }),

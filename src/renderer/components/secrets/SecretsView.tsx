@@ -311,7 +311,7 @@ export function SecretsView({ workspaceId }: SecretsViewProps) {
                             keyErrors[index] ? 'border-red-500' : ''
                           }`}
                           disabled={!secret.isNew}
-                          style={{ textTransform: 'uppercase' }}
+                          style={{ textTransform: 'uppercase', borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }}
                         />
                       </div>
                       {/* Validation error - absolute position to not affect layout */}

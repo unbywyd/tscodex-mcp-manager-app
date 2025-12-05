@@ -3,16 +3,18 @@
  */
 
 import { useState, useEffect } from 'react';
-import { X, Check, AlertCircle, Globe, Code, FileText } from 'lucide-react';
+import { X, Check, AlertCircle, Globe, Code, FileText, Sparkles } from 'lucide-react';
 import { useMcpToolsStore } from '../../stores/mcpToolsStore';
 import type { DynamicResource, ResourceExecutor, EditorMode } from '../../../host/mcp-tools/types';
-import { cn } from '../../lib/utils';
+import { cn, tryJsonParse } from '../../lib/utils';
 import { Select } from '../ui/select';
 import { CodeEditor } from '../ui/code-editor';
 import { JsonEditor } from '../ui/json-editor';
 import { RichTextEditor } from '../ui/rich-text-editor';
 import { MarkdownEditor } from '../ui/markdown-editor';
 import { InfoDialog } from '../ui/dialogs';
+import { AIAssistantPanel } from './AIAssistantPanel';
+import { AIConfigDialog } from './AIConfigDialog';
 
 interface ResourceEditorProps {
   resource?: DynamicResource;
@@ -48,6 +50,9 @@ export function ResourceEditor({ resource, onClose }: ResourceEditorProps) {
       : 'text'
   );
 
+  const [httpMethod, setHttpMethod] = useState<'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'>(
+    resource?.executor.type === 'http' ? resource.executor.method : 'GET'
+  );
   const [httpUrl, setHttpUrl] = useState(
     resource?.executor.type === 'http' ? resource.executor.url : ''
   );
@@ -72,6 +77,10 @@ export function ResourceEditor({ resource, onClose }: ResourceEditorProps) {
     title: string;
     message: string;
   }>({ open: false, title: '', message: '' });
+
+  // AI Assistant state
+  const [showAIAssistant, setShowAIAssistant] = useState(false);
+  const [showAIConfig, setShowAIConfig] = useState(false);
 
   // Validate name on change
   useEffect(() => {
@@ -122,14 +131,20 @@ export function ResourceEditor({ resource, onClose }: ResourceEditorProps) {
           editorMode: editorMode,
         };
         break;
-      case 'http':
+      case 'http': {
+        const headersResult = tryJsonParse<Record<string, string>>(httpHeaders || '{}');
+        if (!headersResult.success) {
+          setHeadersJsonError(headersResult.error);
+          return;
+        }
         executor = {
           type: 'http',
-          method: 'GET',
+          method: httpMethod,
           url: httpUrl,
-          headers: httpHeaders ? JSON.parse(httpHeaders) : undefined,
+          headers: headersResult.data,
         };
         break;
+      }
       case 'function':
         executor = {
           type: 'function',
@@ -169,6 +184,36 @@ export function ResourceEditor({ resource, onClose }: ResourceEditorProps) {
   const hasJsonErrors = headersJsonError || (editorMode === 'json' && staticJsonError);
   const isValid = name && !nameError && !hasJsonErrors && (executorType !== 'function' || !functionError);
 
+  // Handle AI generated resource data
+  const handleAIGenerated = (data: Record<string, unknown>) => {
+    const generated = data as {
+      name: string;
+      description: string;
+      mimeType: string;
+      executorType: 'static' | 'http' | 'function';
+      executor: Record<string, unknown>;
+    };
+
+    // Apply generated values to form
+    setName(generated.name);
+    setDescription(generated.description);
+    setMimeType(generated.mimeType || 'text/plain');
+    setExecutorType(generated.executorType);
+
+    // Apply executor-specific values
+    if (generated.executorType === 'static' && generated.executor) {
+      setStaticContent((generated.executor.content as string) || '');
+      setStaticContentType((generated.executor.contentType as 'text' | 'json') || 'text');
+      setEditorMode((generated.executor.editorMode as EditorMode) || 'text');
+    } else if (generated.executorType === 'http' && generated.executor) {
+      setHttpMethod((generated.executor.method as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE') || 'GET');
+      setHttpUrl((generated.executor.url as string) || '');
+      setHttpHeaders(generated.executor.headers ? JSON.stringify(generated.executor.headers, null, 2) : '{}');
+    } else if (generated.executorType === 'function' && generated.executor) {
+      setFunctionCode((generated.executor.code as string) || '');
+    }
+  };
+
   return (
     <div className="flex flex-col h-full max-h-[90vh]">
       {/* Header */}
@@ -176,16 +221,44 @@ export function ResourceEditor({ resource, onClose }: ResourceEditorProps) {
         <h2 className="text-lg font-semibold text-white">
           {resource ? 'Edit Resource' : 'New Resource'}
         </h2>
-        <button
-          onClick={onClose}
-          className="p-1 text-gray-400 hover:text-white transition-colors"
-        >
-          <X size={20} />
-        </button>
+        <div className="flex items-center gap-2">
+          {!resource && (
+            <button
+              onClick={() => setShowAIAssistant(!showAIAssistant)}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
+                showAIAssistant
+                  ? 'bg-teal-600 text-white'
+                  : 'bg-teal-500/10 text-teal-400 hover:bg-teal-500/20'
+              )}
+              title="Generate with AI"
+            >
+              <Sparkles size={14} />
+              AI
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="p-1 text-gray-400 hover:text-white transition-colors"
+          >
+            <X size={20} />
+          </button>
+        </div>
       </div>
 
       {/* Content */}
       <div className="flex-1 overflow-auto p-4 space-y-4">
+        {/* AI Assistant Panel */}
+        {!resource && (
+          <AIAssistantPanel
+            type="resource"
+            isOpen={showAIAssistant}
+            onClose={() => setShowAIAssistant(false)}
+            onGenerated={handleAIGenerated}
+            onConfigureAI={() => setShowAIConfig(true)}
+          />
+        )}
+
         {/* Basic Info */}
         <div className="space-y-3">
           <div>
@@ -238,12 +311,12 @@ export function ResourceEditor({ resource, onClose }: ResourceEditorProps) {
             />
           </div>
 
-          <div className="flex gap-4">
+          <div className="flex gap-4 items-start">
             <div className="flex-1">
               <label className="block text-sm font-medium text-gray-300 mb-1">
                 URI
               </label>
-              <div className="w-full px-3 py-2 bg-bg-secondary/50 border border-border-default rounded-md text-gray-400 font-mono text-sm">
+              <div className="w-full h-10 px-3 py-2 bg-bg-secondary/50 border border-border-default rounded-md text-gray-400 font-mono text-sm flex items-center">
                 {generatedUri || 'mcp-tools://resource_name'}
               </div>
               <p className="text-xs text-gray-500 mt-1">Auto-generated from name</p>
@@ -381,15 +454,29 @@ export function ResourceEditor({ resource, onClose }: ResourceEditorProps) {
             <div className="space-y-3">
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1">
-                  URL
+                  Request
                 </label>
-                <input
-                  type="text"
-                  value={httpUrl}
-                  onChange={(e) => setHttpUrl(e.target.value)}
-                  placeholder="https://api.example.com/resource"
-                  className="w-full px-3 py-2 bg-bg-secondary border border-border-default rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-white/50"
-                />
+                <div className="flex gap-2">
+                  <Select
+                    value={httpMethod}
+                    onChange={(v) => setHttpMethod(v as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE')}
+                    options={[
+                      { value: 'GET', label: 'GET' },
+                      { value: 'POST', label: 'POST' },
+                      { value: 'PUT', label: 'PUT' },
+                      { value: 'PATCH', label: 'PATCH' },
+                      { value: 'DELETE', label: 'DELETE' },
+                    ]}
+                    className="w-28"
+                  />
+                  <input
+                    type="text"
+                    value={httpUrl}
+                    onChange={(e) => setHttpUrl(e.target.value)}
+                    placeholder="https://api.example.com/resource"
+                    className="flex-1 px-3 py-2 bg-bg-secondary border border-border-default rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-white/50"
+                  />
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1">
@@ -482,6 +569,16 @@ export function ResourceEditor({ resource, onClose }: ResourceEditorProps) {
         description={errorDialog.message}
         variant="error"
         onClose={() => setErrorDialog({ open: false, title: '', message: '' })}
+      />
+
+      {/* AI Config dialog */}
+      <AIConfigDialog
+        open={showAIConfig}
+        onClose={() => setShowAIConfig(false)}
+        onConfigured={() => {
+          // AI is now configured, show the assistant panel
+          setShowAIAssistant(true);
+        }}
       />
     </div>
   );

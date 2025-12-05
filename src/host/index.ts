@@ -13,6 +13,8 @@ import { WorkspaceStore } from './stores/WorkspaceStore';
 import { SessionStore } from './stores/SessionStore';
 import { SecretStore } from './stores/SecretStore';
 import { McpToolsStore } from './stores/McpToolsStore';
+import { AIUsageStore } from './stores/AIUsageStore';
+import { AIAgent } from './ai/AIAgent';
 import { setupRoutes } from './api/routes';
 import { setupGateway } from './gateway';
 import { setupMcpToolsEndpoint } from './mcp-tools/endpoint';
@@ -35,6 +37,10 @@ export class McpHost {
   private sessionStore: SessionStore;
   private secretStore: SecretStore;
   private mcpToolsStore: McpToolsStore;
+  private aiUsageStore: AIUsageStore;
+
+  // AI Agent
+  private aiAgent: AIAgent;
 
   constructor() {
     this.router = createRouter();
@@ -45,6 +51,7 @@ export class McpHost {
     this.sessionStore = new SessionStore();
     this.secretStore = new SecretStore();
     this.mcpToolsStore = new McpToolsStore();
+    this.aiUsageStore = new AIUsageStore();
 
     // Initialize managers
     this.eventBus = new EventBus();
@@ -57,6 +64,9 @@ export class McpHost {
     );
     // Set workspace store for permission support
     this.processManager.setWorkspaceStore(this.workspaceStore);
+
+    // Initialize AI Agent
+    this.aiAgent = new AIAgent(this.secretStore, this.serverStore, this.workspaceStore);
 
     // Setup middleware
     this.setupMiddleware();
@@ -103,6 +113,21 @@ export class McpHost {
     await this.mcpToolsStore.load();
     console.log('[McpHost] Stores loaded');
 
+    // Initialize AI Agent from stored config
+    console.log('[McpHost] Initializing AI Agent...');
+    this.aiAgent.setUsageStore(this.aiUsageStore);
+    await this.aiAgent.initialize();
+    console.log('[McpHost] AI Agent initialized:', this.aiAgent.isConfigured() ? 'configured' : 'not configured');
+
+    // Cleanup old usage logs (older than 30 days)
+    const cleanedUp = await this.aiUsageStore.cleanup();
+    if (cleanedUp > 0) {
+      console.log(`[McpHost] Cleaned up ${cleanedUp} old AI usage log entries`);
+    }
+
+    // Set AI Agent on process manager for proxy token generation
+    this.processManager.setAIAgent(this.aiAgent);
+
     // Setup API routes
     setupRoutes(this.router, {
       serverStore: this.serverStore,
@@ -113,6 +138,7 @@ export class McpHost {
       processManager: this.processManager,
       portManager: this.portManager,
       eventBus: this.eventBus,
+      aiAgent: this.aiAgent,
     });
 
     // Setup MCP Gateway
@@ -178,6 +204,13 @@ export class McpHost {
       this.wss = null;
     }
 
+    // Close AI usage store (SQLite)
+    try {
+      this.aiUsageStore.close();
+    } catch {
+      // Ignore errors during shutdown
+    }
+
     // Close HTTP server
     if (this.server) {
       return new Promise((resolve) => {
@@ -208,6 +241,13 @@ export class McpHost {
    */
   getSecretStore(): SecretStore {
     return this.secretStore;
+  }
+
+  /**
+   * Get AI Agent
+   */
+  getAIAgent(): AIAgent {
+    return this.aiAgent;
   }
 
   /**

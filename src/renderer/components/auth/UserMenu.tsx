@@ -37,12 +37,12 @@ export function UserMenu() {
       {/* Trigger */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors"
+        className="flex items-center gap-2 px-2.5 py-1.5 rounded-md text-sm text-gray-400 hover:text-white hover:bg-bg-hover transition-all"
       >
-        <span className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-xs font-medium text-white">
+        <span className="w-6 h-6 rounded-full bg-teal-600 flex items-center justify-center text-xs font-medium text-white flex-shrink-0">
           {initials}
         </span>
-        <span className="hidden sm:inline max-w-[120px] truncate">
+        <span className="hidden sm:inline max-w-[120px] truncate font-medium">
           {profile.fullName}
         </span>
       </button>
@@ -53,7 +53,7 @@ export function UserMenu() {
           {/* User Info */}
           <div className="p-4 border-b border-border-default">
             <div className="flex items-center gap-3">
-              <span className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-sm font-medium text-white">
+              <span className="w-10 h-10 rounded-full bg-teal-600 flex items-center justify-center text-sm font-medium text-white">
                 {initials}
               </span>
               <div className="flex-1 min-w-0">

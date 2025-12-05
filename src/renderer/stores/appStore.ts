@@ -10,9 +10,7 @@ import type {
   ServerEvent,
   AppEvent,
 } from '../../shared/types';
-
-const API_BASE = 'http://127.0.0.1:4040/api';
-const WS_URL = 'ws://127.0.0.1:4040/events';
+import { getApiBase, getWsUrl, initializeApi } from '../lib/api';
 
 // WebSocket reconnection state (module-level to persist across store updates)
 let wsReconnectAttempts = 0;
@@ -120,6 +118,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ isLoading: true, error: null });
 
     try {
+      // Initialize API with actual host port (may differ from default 4040)
+      await initializeApi();
+
       // Fetch initial data
       await Promise.all([
         get().fetchServers(),
@@ -155,7 +156,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       return;
     }
 
-    const ws = new WebSocket(WS_URL);
+    const ws = new WebSocket(getWsUrl());
 
     ws.onopen = () => {
       console.log('WebSocket connected');
@@ -244,8 +245,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const workspaceId = get().selectedWorkspaceId;
       const url = workspaceId && workspaceId !== 'global'
-        ? `${API_BASE}/servers?workspaceId=${encodeURIComponent(workspaceId)}`
-        : `${API_BASE}/servers`;
+        ? `${getApiBase()}/servers?workspaceId=${encodeURIComponent(workspaceId)}`
+        : `${getApiBase()}/servers`;
 
       const response = await fetch(url);
       const data = await response.json();
@@ -301,7 +302,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Fetch workspaces
   fetchWorkspaces: async () => {
     try {
-      const response = await fetch(`${API_BASE}/workspaces`);
+      const response = await fetch(`${getApiBase()}/workspaces`);
       const data = await response.json();
 
       if (data.success) {
@@ -315,7 +316,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Fetch profile
   fetchProfile: async () => {
     try {
-      const response = await fetch(`${API_BASE}/auth/profile`);
+      const response = await fetch(`${getApiBase()}/auth/profile`);
       const data = await response.json();
 
       if (data.success) {
@@ -331,7 +332,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (workspaceId === 'global') return;
 
     try {
-      const response = await fetch(`${API_BASE}/workspaces/${workspaceId}/servers`);
+      const response = await fetch(`${getApiBase()}/workspaces/${workspaceId}/servers`);
       const data = await response.json();
 
       if (data.success) {
@@ -366,7 +367,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Add server
   addServer: async (data: { installType: string; packageName?: string; packageVersion?: string; localPath?: string }) => {
     try {
-      const response = await fetch(`${API_BASE}/servers`, {
+      const response = await fetch(`${getApiBase()}/servers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -397,7 +398,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
 
     try {
-      const response = await fetch(`${API_BASE}/instances/start`, {
+      const response = await fetch(`${getApiBase()}/instances/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -444,7 +445,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
 
     try {
-      const response = await fetch(`${API_BASE}/instances/stop`, {
+      const response = await fetch(`${getApiBase()}/instances/stop`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -487,7 +488,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
 
     try {
-      const response = await fetch(`${API_BASE}/instances/restart`, {
+      const response = await fetch(`${getApiBase()}/instances/restart`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -516,7 +517,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Restart all running servers (useful after changing global secrets)
   restartAllServers: async () => {
     try {
-      const response = await fetch(`${API_BASE}/instances/restart-all`, {
+      const response = await fetch(`${getApiBase()}/instances/restart-all`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -537,7 +538,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Delete server
   deleteServer: async (serverId: string) => {
     try {
-      const response = await fetch(`${API_BASE}/servers/${serverId}`, {
+      const response = await fetch(`${getApiBase()}/servers/${serverId}`, {
         method: 'DELETE',
       });
 
@@ -556,7 +557,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Check for server update
   checkServerUpdate: async (serverId: string) => {
     try {
-      const response = await fetch(`${API_BASE}/servers/${serverId}/check-update`);
+      const response = await fetch(`${getApiBase()}/servers/${serverId}/check-update`);
       const data = await response.json();
 
       if (!data.success) {
@@ -584,7 +585,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Update server to new version
   updateServer: async (serverId: string, version?: string) => {
     try {
-      const response = await fetch(`${API_BASE}/servers/${serverId}/update`, {
+      const response = await fetch(`${getApiBase()}/servers/${serverId}/update`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ version }),
@@ -623,7 +624,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Refresh server metadata (re-read package.json or npm registry)
   refreshServerMetadata: async (serverId: string) => {
     try {
-      const response = await fetch(`${API_BASE}/servers/${serverId}/refresh-metadata`, {
+      const response = await fetch(`${getApiBase()}/servers/${serverId}/refresh-metadata`, {
         method: 'POST',
       });
 
@@ -643,7 +644,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Create workspace
   createWorkspace: async (label: string, projectRoot: string) => {
     try {
-      const response = await fetch(`${API_BASE}/workspaces`, {
+      const response = await fetch(`${getApiBase()}/workspaces`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ label, projectRoot, source: 'manual' }),
@@ -673,7 +674,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (projectRoot !== undefined) {
         body.projectRoot = projectRoot;
       }
-      const response = await fetch(`${API_BASE}/workspaces/${id}`, {
+      const response = await fetch(`${getApiBase()}/workspaces/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -694,7 +695,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Delete workspace
   deleteWorkspace: async (id: string) => {
     try {
-      const response = await fetch(`${API_BASE}/workspaces/${id}`, {
+      const response = await fetch(`${getApiBase()}/workspaces/${id}`, {
         method: 'DELETE',
       });
 
@@ -718,7 +719,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Reset workspace to Global defaults (clear all server config overrides)
   resetWorkspace: async (id: string) => {
     try {
-      const response = await fetch(`${API_BASE}/workspaces/${id}/reset`, {
+      const response = await fetch(`${getApiBase()}/workspaces/${id}/reset`, {
         method: 'POST',
       });
 
@@ -761,7 +762,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Set server enabled/disabled for workspace
   setServerEnabledForWorkspace: async (workspaceId: string, serverId: string, enabled: boolean) => {
     try {
-      const response = await fetch(`${API_BASE}/workspaces/${workspaceId}/servers/${serverId}`, {
+      const response = await fetch(`${getApiBase()}/workspaces/${workspaceId}/servers/${serverId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled }),
@@ -799,7 +800,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Login
   login: async (fullName: string, email: string) => {
     try {
-      const response = await fetch(`${API_BASE}/auth/login`, {
+      const response = await fetch(`${getApiBase()}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fullName, email }),
@@ -820,7 +821,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Logout
   logout: async () => {
     try {
-      await fetch(`${API_BASE}/auth/logout`, { method: 'POST' });
+      await fetch(`${getApiBase()}/auth/logout`, { method: 'POST' });
       set({ profile: null });
     } catch (error) {
       console.error('Failed to logout:', error);

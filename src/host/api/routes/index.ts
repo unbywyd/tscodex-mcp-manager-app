@@ -19,6 +19,8 @@ import { createSessionRoutes } from './sessions';
 import { createInstanceRoutes } from './instances';
 import { createSecretRoutes } from './secrets';
 import { createMcpToolsRoutes } from './mcp-tools';
+import { createAIRoutes } from './ai';
+import type { AIAgent } from '../../ai/AIAgent';
 
 export interface RouteContext {
   serverStore: ServerStore;
@@ -29,6 +31,7 @@ export interface RouteContext {
   processManager: ProcessManager;
   portManager: PortManager;
   eventBus: EventBus;
+  aiAgent: AIAgent;
 }
 
 export function setupRoutes(router: Router, ctx: RouteContext): void {
@@ -51,4 +54,5 @@ export function setupRoutes(router: Router, ctx: RouteContext): void {
   createInstanceRoutes(router, ctx);
   createSecretRoutes(router, ctx);
   createMcpToolsRoutes(router, { mcpToolsStore: ctx.mcpToolsStore, eventBus: ctx.eventBus });
+  createAIRoutes(router, { aiAgent: ctx.aiAgent, secretStore: ctx.secretStore });
 }

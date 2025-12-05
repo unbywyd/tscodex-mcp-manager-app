@@ -69,12 +69,25 @@ export interface SecretsPermissions {
 }
 
 /**
+ * Controls AI Assistant access for the server
+ */
+export interface AIPermissions {
+  /** Allow server to access AI Assistant API via proxy */
+  allowAccess: boolean;
+  /** List of allowed models for this server (empty = use default model only) */
+  allowedModels: string[];
+  /** Rate limit: max requests per minute (0 = unlimited) */
+  rateLimit: number;
+}
+
+/**
  * Complete server permissions configuration
  */
 export interface ServerPermissions {
   env: EnvPermissions;
   context: ContextPermissions;
   secrets: SecretsPermissions;
+  ai?: AIPermissions;
 }
 
 // ============================================================================
@@ -221,6 +234,84 @@ export interface UserProfile {
 }
 
 // ============================================================================
+// AI Assistant Types
+// ============================================================================
+
+/**
+ * AI Assistant configuration (stored in SecretStore)
+ */
+export interface AIAssistantConfig {
+  /** Base URL of OpenAI-compatible API */
+  baseUrl: string;
+  /** Default model to use */
+  defaultModel: string;
+  /** Whether API key is set (key itself is stored securely) */
+  hasApiKey: boolean;
+}
+
+/**
+ * Response from /api/ai/proxy/v1/models endpoint
+ */
+export interface AIModelsInfo {
+  /** Default model configured in AI Assistant */
+  defaultModel: string;
+  /** List of allowed models for this server */
+  allowedModels: string[];
+  /** Rate limit in requests per minute (0 = unlimited) */
+  rateLimit: number;
+}
+
+/**
+ * AI Usage log entry for tracking proxy requests
+ */
+export interface AIUsageEntry {
+  id: number;
+  timestamp: number;
+  /** Source identifier: 'global' or serverId */
+  source: string;
+  /** Display name for source (populated from server name) */
+  sourceName?: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  status: 'success' | 'error' | 'rate_limited';
+  errorMsg?: string;
+  latencyMs: number;
+}
+
+/**
+ * AI Usage statistics summary
+ */
+export interface AIUsageStats {
+  totalRequests: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  bySource: Record<string, {
+    requests: number;
+    inputTokens: number;
+    outputTokens: number;
+  }>;
+}
+
+/**
+ * Global token info for UI
+ */
+export interface AIGlobalTokenInfo {
+  hasToken: boolean;
+  proxyUrl: string;
+  createdAt?: number;
+}
+
+/**
+ * Token validation result
+ */
+export interface AITokenValidationResult {
+  type: 'global' | 'server';
+  serverId?: string;
+  workspaceId?: string;
+}
+
+// ============================================================================
 // API Types
 // ============================================================================
 
@@ -339,6 +430,15 @@ export const GLOBAL_WORKSPACE_ID = 'global';
 // ============================================================================
 
 /**
+ * Default AI permissions (disabled by default)
+ */
+export const DEFAULT_AI_PERMISSIONS: AIPermissions = {
+  allowAccess: false,
+  allowedModels: [],
+  rateLimit: 0,
+};
+
+/**
  * Default permissions for new servers (secure by default)
  */
 export const DEFAULT_SERVER_PERMISSIONS: ServerPermissions = {
@@ -359,6 +459,7 @@ export const DEFAULT_SERVER_PERMISSIONS: ServerPermissions = {
     mode: 'none',
     allowlist: [],
   },
+  ai: DEFAULT_AI_PERMISSIONS,
 };
 
 /**

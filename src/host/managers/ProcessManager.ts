@@ -8,6 +8,7 @@ import { PortManager } from './PortManager';
 import { ServerStore } from '../stores/ServerStore';
 import { SecretStore } from '../stores/SecretStore';
 import { WorkspaceStore } from '../stores/WorkspaceStore';
+import type { AIAgent } from '../ai/AIAgent';
 import { getSpawnCommand, delay } from '../../shared/utils';
 import {
   ServerInstance,
@@ -31,11 +32,11 @@ interface ProcessInfo {
 
 const RESTART_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_RESTART_ATTEMPTS = 3;
-const GRACEFUL_SHUTDOWN_TIMEOUT = 5000;
 
 export class ProcessManager {
   private processes: Map<string, ProcessInfo> = new Map();
   private workspaceStore: WorkspaceStore | null = null;
+  private aiAgent: AIAgent | null = null;
 
   constructor(
     private portManager: PortManager,
@@ -43,6 +44,13 @@ export class ProcessManager {
     private serverStore: ServerStore,
     private secretStore: SecretStore
   ) {}
+
+  /**
+   * Set AI Agent reference (for proxy token generation)
+   */
+  setAIAgent(agent: AIAgent): void {
+    this.aiAgent = agent;
+  }
 
   /**
    * Set workspace store reference (optional, for permission support)
@@ -272,22 +280,9 @@ export class ProcessManager {
     const { process: proc, instance } = info;
 
     try {
-      // Try graceful shutdown
+      // Try graceful shutdown with process tree killing (cross-platform)
       if (proc.pid && !proc.killed) {
-        // On Windows, use taskkill to kill the process tree
-        if (process.platform === 'win32') {
-          await this.killProcessTree(proc.pid);
-        } else {
-          proc.kill('SIGTERM');
-
-          // Wait for graceful exit
-          const exited = await this.waitForExit(proc, GRACEFUL_SHUTDOWN_TIMEOUT);
-
-          if (!exited) {
-            // Force kill
-            proc.kill('SIGKILL');
-          }
-        }
+        await this.killProcessTree(proc.pid);
       }
     } catch (error) {
       console.error(`Error stopping process ${key}:`, error);
@@ -306,18 +301,47 @@ export class ProcessManager {
   }
 
   /**
-   * Kill process tree on Windows
+   * Kill process tree (cross-platform)
    */
   private killProcessTree(pid: number): Promise<void> {
     return new Promise((resolve) => {
-      // /T kills the process tree, /F forces termination
-      exec(`taskkill /PID ${pid} /T /F`, (error) => {
-        if (error) {
-          console.error(`taskkill error for PID ${pid}:`, error.message);
+      if (process.platform === 'win32') {
+        // Windows: /T kills the process tree, /F forces termination
+        exec(`taskkill /PID ${pid} /T /F`, (error) => {
+          if (error) {
+            console.error(`taskkill error for PID ${pid}:`, error.message);
+          }
+          // Wait a bit for OS to fully release resources
+          setTimeout(resolve, 500);
+        });
+      } else {
+        // macOS/Linux: Kill process group using negative PID
+        // First try graceful SIGTERM
+        try {
+          process.kill(-pid, 'SIGTERM');
+        } catch (e) {
+          // Process group may not exist, try killing just the process
+          try {
+            process.kill(pid, 'SIGTERM');
+          } catch {
+            // Process already dead
+          }
         }
-        // Wait a bit for OS to fully release resources
-        setTimeout(resolve, 500);
-      });
+
+        // Wait for graceful shutdown, then force kill
+        setTimeout(() => {
+          try {
+            process.kill(-pid, 'SIGKILL');
+          } catch {
+            try {
+              process.kill(pid, 'SIGKILL');
+            } catch {
+              // Process already dead
+            }
+          }
+          setTimeout(resolve, 500);
+        }, 1000);
+      }
     });
   }
 
@@ -475,7 +499,47 @@ export class ProcessManager {
       console.log(`[ProcessManager] No user profile or not allowed, server will run without auth`);
     }
 
+    // 4. Add AI Proxy env vars if AI access is allowed
+    const aiEnv = await this.buildAIEnv(serverId, workspaceId);
+    if (aiEnv) {
+      Object.assign(env, aiEnv);
+      console.log(`[ProcessManager] AI Proxy enabled for ${serverId}`);
+    }
+
     return env;
+  }
+
+  /**
+   * Build AI Proxy environment variables if AI access is allowed
+   */
+  private async buildAIEnv(
+    serverId: string,
+    workspaceId: string
+  ): Promise<Record<string, string> | null> {
+    if (!this.aiAgent || !this.aiAgent.isConfigured()) {
+      return null;
+    }
+
+    const permissions = await this.aiAgent.getServerAIPermissions(serverId, workspaceId);
+    if (!permissions || !permissions.allowAccess) {
+      return null;
+    }
+
+    // Generate proxy token for this server
+    const proxyToken = this.aiAgent.generateProxyToken(serverId, workspaceId);
+
+    return {
+      MCP_AI_PROXY_URL: `http://127.0.0.1:${this.getHostPort()}/api/ai/proxy/v1`,
+      MCP_AI_PROXY_TOKEN: proxyToken,
+    };
+  }
+
+  /**
+   * Get host port (default 4040)
+   */
+  private getHostPort(): number {
+    // Import from types to avoid circular dependency
+    return 4040; // DEFAULT_HOST_PORT
   }
 
   /**
@@ -829,19 +893,4 @@ export class ProcessManager {
     }
   }
 
-  /**
-   * Wait for process to exit
-   */
-  private waitForExit(proc: ChildProcess, timeout: number): Promise<boolean> {
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        resolve(false);
-      }, timeout);
-
-      proc.once('exit', () => {
-        clearTimeout(timer);
-        resolve(true);
-      });
-    });
-  }
 }

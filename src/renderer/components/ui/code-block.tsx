@@ -71,7 +71,7 @@ export function CodeBlock({ code, language = 'json', className, showCopy = true 
         const boolMatch = remaining.match(/^(true|false|null)/);
         if (boolMatch) {
           tokens.push(
-            <span key={`${lineIndex}-${keyIndex++}`} className="text-purple-400">
+            <span key={`${lineIndex}-${keyIndex++}`} className="text-teal-400">
               {boolMatch[0]}
             </span>
           );

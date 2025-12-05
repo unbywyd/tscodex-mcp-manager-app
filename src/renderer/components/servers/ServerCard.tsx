@@ -20,6 +20,7 @@ import {
   Link2,
   Check,
   ArrowUpCircle,
+  AlertCircle,
 } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import type { ServerInfo } from '../../../shared/types';
@@ -42,6 +43,7 @@ import {
 } from '../ui/alert-dialog';
 import { WorkspaceServerInfoModal } from './WorkspaceServerInfoModal';
 import { UpdateCheckModal } from './UpdateCheckModal';
+import { getMcpUrl } from '../../lib/api';
 
 interface ServerCardProps {
   server: ServerInfo;
@@ -65,6 +67,8 @@ export function ServerCard({ server, workspaceId, onOpenDetails }: ServerCardPro
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showWorkspaceInfoModal, setShowWorkspaceInfoModal] = useState(false);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [showStartServerDialog, setShowStartServerDialog] = useState(false);
+  const [isStartingFromDialog, setIsStartingFromDialog] = useState(false);
 
   // Check if server can be updated (has fixed version, not local, has update available)
   const canUpdate = server.hasUpdate && server.installType !== 'local' && server.packageVersion && server.packageVersion !== 'latest';
@@ -170,12 +174,33 @@ export function ServerCard({ server, workspaceId, onOpenDetails }: ServerCardPro
   const handleCardClick = () => {
     if (!isGlobalWorkspace) {
       // From workspace view, show info modal first only if server is enabled and running
-      if (server.status === 'running') {
+      if (server.status === 'running' && isEnabledForWorkspace) {
         setShowWorkspaceInfoModal(true);
+      } else if (server.status !== 'running' || !isEnabledForWorkspace) {
+        // Show dialog to start server or enable it
+        setShowStartServerDialog(true);
       }
-      // If server is disabled or not running, do nothing
     } else {
       onOpenDetails?.(server.id);
+    }
+  };
+
+  const handleStartFromDialog = async () => {
+    setIsStartingFromDialog(true);
+    try {
+      // First enable server for workspace if disabled
+      if (!isEnabledForWorkspace) {
+        await setServerEnabledForWorkspace(workspaceId, server.id, true);
+      }
+      // Then start server if not running
+      if (server.status !== 'running') {
+        await startServer(server.id);
+      }
+      setShowStartServerDialog(false);
+    } catch (error) {
+      console.error('Failed to start server:', error);
+    } finally {
+      setIsStartingFromDialog(false);
     }
   };
 
@@ -187,12 +212,53 @@ export function ServerCard({ server, workspaceId, onOpenDetails }: ServerCardPro
 
   // For workspace view, show dimmed if disabled
   const cardOpacity = !isGlobalWorkspace && !isEnabledForWorkspace ? 'opacity-50' : '';
+  // For workspace view, slightly darken the background
+  const cardBgClass = !isGlobalWorkspace ? '!bg-bg-secondary' : '';
+
+  // Determine if server is active (running and enabled)
+  const isActive = isGlobalWorkspace
+    ? server.status === 'running'
+    : server.status === 'running' && isEnabledForWorkspace;
+  
+  // Determine if server is inactive (stopped or disabled)
+  const isInactive = server.status === 'stopped' || (!isGlobalWorkspace && !isEnabledForWorkspace);
+
+  // Card styling with gradient based on status
+  const getCardStyle = () => {
+    if (isActive) {
+      // Green gradient for active servers
+      return {
+        background: `
+          radial-gradient(circle at 90% 80%, rgba(15, 118, 110, 0.12) 0%, transparent 50%),
+          radial-gradient(circle at 75% 60%, rgba(19, 78, 74, 0.1) 0%, transparent 45%),
+          #1f1f1f
+        `,
+      };
+    } else if (isInactive) {
+      // Red gradient for inactive servers
+      return {
+        background: `
+          radial-gradient(circle at 90% 80%, rgba(220, 38, 38, 0.12) 0%, transparent 50%),
+          radial-gradient(circle at 75% 60%, rgba(153, 27, 27, 0.1) 0%, transparent 45%),
+          #1f1f1f
+        `,
+      };
+    }
+    return {};
+  };
+
+  const borderColorClass = isActive
+    ? 'border-l-4 border-l-teal-500'
+    : isInactive
+    ? 'border-l-4 border-l-red-500'
+    : '';
 
   return (
     <>
       <div
-        className={`card p-4 relative group cursor-pointer hover:border-border-hover transition-colors ${cardOpacity}`}
+        className={`card p-4 relative group cursor-pointer hover:border-border-hover transition-colors ${cardOpacity} ${cardBgClass} ${borderColorClass} overflow-hidden`}
         onClick={handleCardClick}
+        style={getCardStyle()}
       >
         <div className="flex items-start gap-4">
           {/* Icon */}
@@ -211,15 +277,17 @@ export function ServerCard({ server, workspaceId, onOpenDetails }: ServerCardPro
               </div>
               {/* Workspace enabled/disabled badge */}
               {!isGlobalWorkspace && (
-                <span
-                  className={`px-1.5 py-0.5 text-xs font-medium rounded ${
-                    isEnabledForWorkspace
-                      ? 'bg-emerald-900/50 text-emerald-400'
-                      : 'bg-gray-700 text-gray-400'
-                  }`}
-                >
-                  {isEnabledForWorkspace ? 'Enabled' : 'Disabled'}
-                </span>
+                <>
+                  {isEnabledForWorkspace && server.status === 'running' ? (
+                    <span className="px-1.5 py-0.5 text-xs font-medium rounded bg-emerald-900/50 text-emerald-400">
+                      Enabled
+                    </span>
+                  ) : !isEnabledForWorkspace ? (
+                    <span className="px-1.5 py-0.5 text-xs font-medium rounded bg-gray-700 text-gray-400">
+                      Disabled
+                    </span>
+                  ) : null}
+                </>
               )}
               {/* Update available badge */}
               {canUpdate && (
@@ -279,7 +347,7 @@ export function ServerCard({ server, workspaceId, onOpenDetails }: ServerCardPro
                 <code className="text-xs text-emerald-400 bg-emerald-900/20 px-1.5 py-0.5 rounded truncate">
                   {isGlobalWorkspace
                     ? `http://127.0.0.1:${server.port}/mcp`
-                    : `http://127.0.0.1:4040/mcp/${server.id}/${workspaceId}`}
+                    : getMcpUrl(server.id, workspaceId)}
                 </code>
               </div>
             )}
@@ -435,6 +503,68 @@ export function ServerCard({ server, workspaceId, onOpenDetails }: ServerCardPro
           </div>
         </div>
       </div>
+
+      {/* Start server dialog */}
+      <AlertDialog open={showStartServerDialog} onOpenChange={setShowStartServerDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-12 h-12 rounded-lg bg-teal-500/10 flex items-center justify-center">
+                <AlertCircle className="w-6 h-6 text-teal-400" />
+              </div>
+              <AlertDialogTitle className="text-lg">Server Not Available</AlertDialogTitle>
+            </div>
+            <AlertDialogDescription className="pt-2">
+              <p className="mb-3">
+                The server <span className="font-semibold text-white">"{server.displayName}"</span> needs to be started
+                {!isEnabledForWorkspace && ' and enabled for this workspace'} before you can access it.
+              </p>
+              {!isEnabledForWorkspace && (
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-md p-3 mb-3">
+                  <p className="text-sm text-yellow-400">
+                    This server is currently disabled for this workspace. Enabling it will make it available here.
+                  </p>
+                </div>
+              )}
+              {server.status !== 'running' && (
+                <div className="bg-blue-500/10 border border-blue-500/30 rounded-md p-3">
+                  <p className="text-sm text-blue-400">
+                    The server is currently stopped. Starting it will make it available for connections.
+                  </p>
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isStartingFromDialog}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleStartFromDialog}
+              disabled={isStartingFromDialog}
+              className="bg-white hover:bg-gray-200 text-black flex items-center gap-2"
+            >
+              {isStartingFromDialog ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  {!isEnabledForWorkspace && server.status !== 'running'
+                    ? 'Enabling & Starting...'
+                    : !isEnabledForWorkspace
+                    ? 'Enabling...'
+                    : 'Starting...'}
+                </>
+              ) : (
+                <>
+                  <Play className="w-4 h-4" />
+                  {!isEnabledForWorkspace && server.status !== 'running'
+                    ? 'Enable & Start Server'
+                    : !isEnabledForWorkspace
+                    ? 'Enable Server'
+                    : 'Start Server'}
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Delete confirmation dialog */}
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>

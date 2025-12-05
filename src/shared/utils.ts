@@ -96,3 +96,29 @@ export function safeJsonParse<T>(str: string, fallback: T): T {
 export function timeoutSignal(ms: number): AbortSignal {
   return AbortSignal.timeout(ms);
 }
+
+/**
+ * Get user data path with fallback for when electron app context is not available.
+ * Falls back to ~/.mcp-manager on Unix or %USERPROFILE%/.mcp-manager on Windows.
+ */
+export function getUserDataPath(electronApp?: { getPath?: (name: 'userData') => string }): string {
+  // Try electron app.getPath first
+  if (electronApp?.getPath) {
+    try {
+      return electronApp.getPath('userData');
+    } catch {
+      // Fall through to fallback
+    }
+  }
+
+  // Fallback to home directory based path
+  const home = process.env.HOME || process.env.USERPROFILE;
+  if (home) {
+    // Use home directory directly - os.homedir() may not be available in all contexts
+    return `${home}/.mcp-manager`.replace(/\\/g, '/');
+  }
+
+  // Last resort: current working directory
+  console.warn('[getUserDataPath] Could not determine user data path, using cwd');
+  return process.cwd();
+}

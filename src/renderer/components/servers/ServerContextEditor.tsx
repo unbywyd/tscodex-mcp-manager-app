@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Save, AlertCircle, CheckCircle, Info, Loader2 } from 'lucide-react';
+import { getApiBase } from '../../lib/api';
 
 interface ServerContextEditorProps {
   serverId: string;
@@ -7,8 +8,6 @@ interface ServerContextEditorProps {
   /** Header names declared by server (e.g., ['project-id', 'api-key']) */
   contextHeaders: string[];
 }
-
-const API_BASE = 'http://127.0.0.1:4040/api';
 
 export function ServerContextEditor({
   serverId,
@@ -39,7 +38,7 @@ export function ServerContextEditor({
     setIsLoading(true);
     try {
       const response = await fetch(
-        `${API_BASE}/workspaces/${workspaceId}/servers/${serverId}/config`
+        `${getApiBase()}/workspaces/${workspaceId}/servers/${serverId}/config`
       );
       if (response.ok) {
         const data = await response.json();
@@ -61,7 +60,7 @@ export function ServerContextEditor({
 
     try {
       const response = await fetch(
-        `${API_BASE}/workspaces/${workspaceId}/servers/${serverId}`,
+        `${getApiBase()}/workspaces/${workspaceId}/servers/${serverId}`,
         {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },

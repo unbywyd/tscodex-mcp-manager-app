@@ -8,6 +8,8 @@ import {
   Info,
   Eye,
   EyeOff,
+  HelpCircle,
+  ArrowLeft,
 } from 'lucide-react';
 import { Alert } from '../ui/alert';
 
@@ -37,6 +39,7 @@ export function AuthorizationCard({
   const [isSaving, setIsSaving] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showHelpModal, setShowHelpModal] = useState(false);
 
   // Load existing token on mount
   useEffect(() => {
@@ -188,8 +191,18 @@ export function AuthorizationCard({
   const hasChanges = authToken !== (existingToken || '');
 
   return (
-    <div className="card p-4">
-      <h3 className="text-sm font-medium text-gray-400 mb-4">Authorization</h3>
+    <>
+      <div className="card p-4">
+        <div className="flex items-center gap-2 mb-4">
+          <h3 className="text-sm font-medium text-gray-400">Authorization</h3>
+          <button
+            onClick={() => setShowHelpModal(true)}
+            className="p-1 text-gray-500 hover:text-gray-300 transition-colors"
+            title="What is authorization?"
+          >
+            <HelpCircle className="w-4 h-4" />
+          </button>
+        </div>
 
       {/* Status Display */}
       <div className="flex items-start gap-3 mb-4">
@@ -302,6 +315,76 @@ export function AuthorizationCard({
           )}
         </div>
       </div>
-    </div>
+      </div>
+
+      {/* Help Modal */}
+      {showHelpModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => setShowHelpModal(false)}
+          />
+
+          {/* Modal */}
+          <div className="relative bg-bg-card border border-border-default rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center gap-3 p-4 border-b border-border-default flex-shrink-0">
+              <button
+                onClick={() => setShowHelpModal(false)}
+                className="p-1 text-gray-400 hover:text-white transition-colors"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+              <h2 className="text-lg font-semibold">What is Authorization?</h2>
+            </div>
+
+            {/* Scrollable Content */}
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="max-w-none">
+                <p className="text-gray-300 leading-relaxed">
+                  MCP Manager uses a <strong>pseudo-authorization</strong> system that allows you to identify yourself to MCP servers. This system enables you to provide your name and email address, which are then sent to MCP servers so they can recognize you as a specific user.
+                </p>
+
+                <h3 className="text-white font-medium mt-6 mb-3">How It Works</h3>
+                <p className="text-gray-300 leading-relaxed">
+                  When you configure authorization for a server, you provide your name and email address. These credentials are transmitted to the MCP server along with a unique authentication token. The server is responsible for generating and managing this token, which it uses to verify your identity and provide personalized features.
+                </p>
+
+                <h3 className="text-white font-medium mt-6 mb-3">Authentication Token</h3>
+                <p className="text-gray-300 leading-relaxed">
+                  The authentication token is stored as <code className="px-1.5 py-0.5 bg-bg-secondary rounded font-mono text-sm">SECRET_MCP_AUTH_TOKEN</code> in the server's configuration. This token can be set at three different levels:
+                </p>
+                <ul className="list-disc list-inside text-gray-300 space-y-2 mt-3 ml-2">
+                  <li><strong>Globally:</strong> Set in the Global workspace secrets, applying to all workspaces by default</li>
+                  <li><strong>Workspace:</strong> Override the global token for a specific workspace</li>
+                  <li><strong>Server:</strong> Override both global and workspace tokens for a specific server instance</li>
+                </ul>
+
+                <h3 className="text-white font-medium mt-6 mb-3">Configuration</h3>
+                <p className="text-gray-300 leading-relaxed">
+                  To configure authorization for a server, navigate to the server's configuration page and open the <strong>Connection</strong> tab. In the Authorization section, you can enter your authentication token. This token, along with your name and email, will be passed to the server as environment variables when the server starts.
+                </p>
+
+                <h3 className="text-white font-medium mt-6 mb-3">Server Responsibility</h3>
+                <p className="text-gray-300 leading-relaxed">
+                  It is the MCP server's responsibility to provide a unique token that it can process and validate. The server should handle token generation, validation, and user identification based on the provided credentials and token.
+                </p>
+              </div>
+            </div>
+
+            {/* Fixed Footer */}
+            <div className="p-4 border-t border-border-default flex-shrink-0">
+              <button
+                onClick={() => setShowHelpModal(false)}
+                className="btn btn-primary w-full"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

@@ -6,6 +6,9 @@ export default {
   darkMode: 'class',
   theme: {
     extend: {
+      screens: {
+        'tablet': '900px',
+      },
       colors: {
         bg: {
           primary: '#0a0a0a',

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { Select } from '../ui/select';
 import { validateSchema, ValidationError, getErrorsForPath } from '../../lib/schema-validator';
+import { getApiBase } from '../../lib/api';
 
 // Lazy load heavy editor components
 const RichTextEditor = lazy(() =>
@@ -67,8 +68,6 @@ function EditorLoading() {
     </div>
   );
 }
-
-const API_BASE = 'http://127.0.0.1:4040/api';
 
 // Parse schema if it's a TypeBox schema
 function parseSchema(schema: unknown): SchemaProperty | null {
@@ -151,7 +150,7 @@ export function ServerConfigEditor({
     try {
       // In a real implementation, load from workspace-specific config override
       const response = await fetch(
-        `${API_BASE}/workspaces/${workspaceId}/servers/${serverId}/config`
+        `${getApiBase()}/workspaces/${workspaceId}/servers/${serverId}/config`
       );
       if (response.ok) {
         const data = await response.json();
@@ -187,7 +186,7 @@ export function ServerConfigEditor({
 
     try {
       const response = await fetch(
-        `${API_BASE}/workspaces/${workspaceId}/servers/${serverId}/config`,
+        `${getApiBase()}/workspaces/${workspaceId}/servers/${serverId}/config`,
         {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },

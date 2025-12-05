@@ -11,6 +11,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   maximize: () => ipcRenderer.send('app:maximize'),
   close: () => ipcRenderer.send('app:close'),
   quit: () => ipcRenderer.send('app:quit'),
+  isMaximized: () => ipcRenderer.invoke('app:is-maximized'),
+  onMaximized: (callback: () => void) => {
+    ipcRenderer.on('window:maximized', callback);
+    return () => ipcRenderer.removeListener('window:maximized', callback);
+  },
+  onUnmaximized: (callback: () => void) => {
+    ipcRenderer.on('window:unmaximized', callback);
+    return () => ipcRenderer.removeListener('window:unmaximized', callback);
+  },
 
   // Tray status
   updateServersCount: (count: number) => ipcRenderer.send('app:update-servers-count', count),
@@ -35,6 +44,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   selectDirectory: () =>
     ipcRenderer.invoke('dialog:select-directory'),
 
+  // AI Assistant
+  getAIConfig: () =>
+    ipcRenderer.invoke('ai:get-config'),
+  setAISecret: (key: string, value: string) =>
+    ipcRenderer.invoke('ai:set-secret', key, value),
+  deleteAISecret: (key: string) =>
+    ipcRenderer.invoke('ai:delete-secret', key),
+  getAIStatus: () =>
+    ipcRenderer.invoke('ai:get-status'),
+  reinitializeAI: () =>
+    ipcRenderer.invoke('ai:reinitialize'),
+
   // Platform info
   platform: process.platform,
 });
@@ -47,6 +68,9 @@ declare global {
       maximize: () => void;
       close: () => void;
       quit: () => void;
+      isMaximized: () => Promise<boolean>;
+      onMaximized: (callback: () => void) => () => void;
+      onUnmaximized: (callback: () => void) => () => void;
       updateServersCount: (count: number) => void;
       getHostStatus: () => Promise<{ running: boolean; port: number }>;
       getHostPort: () => Promise<number>;
@@ -55,6 +79,12 @@ declare global {
       deleteSecret: (serverId: string, key: string, scope: string, workspaceId?: string) => Promise<void>;
       selectFile: (options?: { filters?: Array<{ name: string; extensions: string[] }> }) => Promise<string | null>;
       selectDirectory: () => Promise<string | null>;
+      // AI Assistant
+      getAIConfig: () => Promise<{ baseUrl: string | null; defaultModel: string | null; hasApiKey: boolean }>;
+      setAISecret: (key: string, value: string) => Promise<void>;
+      deleteAISecret: (key: string) => Promise<boolean>;
+      getAIStatus: () => Promise<boolean>;
+      reinitializeAI: () => Promise<boolean>;
       platform: NodeJS.Platform;
     };
   }

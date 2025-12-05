@@ -34,6 +34,7 @@ import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '..
 import { Alert } from '../ui/alert';
 import { CodeBlock } from '../ui/code-block';
 import type { ServerInfo } from '../../../shared/types';
+import { getApiBase } from '../../lib/api';
 
 type ServerTab = 'overview' | 'config' | 'secrets' | 'permissions';
 type OverviewSubTab = 'info' | 'connection' | 'tools' | 'resources' | 'prompts';
@@ -43,8 +44,6 @@ interface ServerDetailPageProps {
   workspaceId: string;
   onBack: () => void;
 }
-
-const API_BASE = 'http://127.0.0.1:4040/api';
 
 interface ServerMetadata {
   server: {
@@ -112,7 +111,7 @@ export function ServerDetailPage({ serverId, workspaceId, onBack }: ServerDetail
   const fetchMetadata = async () => {
     setIsLoadingMeta(true);
     try {
-      const response = await fetch(`${API_BASE}/instances/${serverId}/${workspaceId}/metadata`, {
+      const response = await fetch(`${getApiBase()}/instances/${serverId}/${workspaceId}/metadata`, {
         signal: AbortSignal.timeout(5000),
       });
       if (response.ok) {
@@ -202,7 +201,7 @@ export function ServerDetailPage({ serverId, workspaceId, onBack }: ServerDetail
     setHealthError(null);
 
     try {
-      const response = await fetch(`${API_BASE}/instances/${serverId}/${workspaceId}/health`, {
+      const response = await fetch(`${getApiBase()}/instances/${serverId}/${workspaceId}/health`, {
         signal: AbortSignal.timeout(5000),
       });
 

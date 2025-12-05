@@ -332,7 +332,7 @@ export function ServerSecretsManager({
                           className={`input font-mono text-sm rounded-l-none flex-1 min-w-0 uppercase ${keyErrors[index] ? 'border-red-500' : ''
                             }`}
                           disabled={!secret.isNew}
-                          style={{ textTransform: 'uppercase' }}
+                          style={{ textTransform: 'uppercase', borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }}
                         />
                       </div>
                       {/* Validation error - fixed height to not affect layout */}

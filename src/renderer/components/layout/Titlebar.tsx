@@ -1,13 +1,29 @@
-import { useState } from 'react';
-import { Minus, Square, X } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Minus, Square, Maximize2, X } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { SignInModal } from '../auth/SignInModal';
 import { UserMenu } from '../auth/UserMenu';
+import { AIAssistantButton } from '../ai/AIAssistantButton';
 import logoImage from '../../assets/logo.png';
 
 export function Titlebar() {
-  const { profile, isConnected } = useAppStore();
+  const { profile } = useAppStore();
   const [showSignIn, setShowSignIn] = useState(false);
+  const [isMaximized, setIsMaximized] = useState(false);
+
+  useEffect(() => {
+    // Get initial state
+    window.electronAPI?.isMaximized().then(setIsMaximized);
+
+    // Subscribe to state changes
+    const unsubscribeMaximized = window.electronAPI?.onMaximized(() => setIsMaximized(true));
+    const unsubscribeUnmaximized = window.electronAPI?.onUnmaximized(() => setIsMaximized(false));
+
+    return () => {
+      unsubscribeMaximized?.();
+      unsubscribeUnmaximized?.();
+    };
+  }, []);
 
   const handleMinimize = () => window.electronAPI?.minimize();
   const handleMaximize = () => window.electronAPI?.maximize();
@@ -24,12 +40,6 @@ export function Titlebar() {
             className="h-6 w-auto"
           />
           <span className="font-semibold text-sm">MCP Manager</span>
-          <span
-            className={`w-2 h-2 rounded-full ${
-              isConnected ? 'bg-status-running' : 'bg-status-stopped'
-            }`}
-            title={isConnected ? 'Connected' : 'Disconnected'}
-          />
         </div>
 
         {/* Center: Empty for drag */}
@@ -37,6 +47,9 @@ export function Titlebar() {
 
         {/* Right: Profile & Window controls */}
         <div className="flex items-center gap-4 titlebar-no-drag">
+          {/* AI Assistant Button */}
+          <AIAssistantButton />
+
           {/* Profile / Sign In */}
           {profile ? (
             <UserMenu />
@@ -61,9 +74,13 @@ export function Titlebar() {
             <button
               onClick={handleMaximize}
               className="p-2 hover:bg-bg-hover transition-colors"
-              title="Maximize"
+              title={isMaximized ? 'Restore' : 'Maximize'}
             >
-              <Square className="w-3 h-3" />
+              {isMaximized ? (
+                <Maximize2 className="w-4 h-4" />
+              ) : (
+                <Square className="w-4 h-4" />
+              )}
             </button>
             <button
               onClick={handleClose}

@@ -13,6 +13,7 @@ import {
   FileText,
 } from 'lucide-react';
 import type { InstallType } from '../../../shared/types';
+import { getApiBase } from '../../lib/api';
 
 type AddServerStep = 'select-type' | 'configure' | 'verifying' | 'result';
 
@@ -32,8 +33,6 @@ interface AddServerFlowProps {
   onClose: () => void;
   onServerAdded: () => void;
 }
-
-const API_BASE = 'http://127.0.0.1:4040/api';
 
 export function AddServerFlow({ onClose, onServerAdded }: AddServerFlowProps) {
   const [step, setStep] = useState<AddServerStep>('select-type');
@@ -137,7 +136,7 @@ export function AddServerFlow({ onClose, onServerAdded }: AddServerFlowProps) {
       if (installType === 'npm') {
         addLog(`Installing ${packageName}...`);
 
-        const installResponse = await fetch(`${API_BASE}/packages/install`, {
+        const installResponse = await fetch(`${getApiBase()}/packages/install`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -160,7 +159,7 @@ export function AddServerFlow({ onClose, onServerAdded }: AddServerFlowProps) {
         // For other types, get version from registry
         addLog(`Fetching latest version for ${packageName}...`);
         try {
-          const versionResponse = await fetch(`${API_BASE}/packages/${encodeURIComponent(packageName)}/version`);
+          const versionResponse = await fetch(`${getApiBase()}/packages/${encodeURIComponent(packageName)}/version`);
           const versionData = await versionResponse.json();
           if (versionData.success && versionData.version) {
             resolvedPackageVersion = versionData.version;
@@ -179,7 +178,7 @@ export function AddServerFlow({ onClose, onServerAdded }: AddServerFlowProps) {
         : `Creating server: ${packageName}@${resolvedPackageVersion || 'latest'}`
       );
 
-      const createResponse = await fetch(`${API_BASE}/servers`, {
+      const createResponse = await fetch(`${getApiBase()}/servers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -204,7 +203,7 @@ export function AddServerFlow({ onClose, onServerAdded }: AddServerFlowProps) {
       // Step 2: Try to start the server for verification
       addLog('Starting server for compatibility check...');
 
-      const startResponse = await fetch(`${API_BASE}/instances/start`, {
+      const startResponse = await fetch(`${getApiBase()}/instances/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -229,7 +228,7 @@ export function AddServerFlow({ onClose, onServerAdded }: AddServerFlowProps) {
         addLog('Performing health check...');
 
         // Use proxy endpoint to avoid CORS issues
-        const healthResponse = await fetch(`${API_BASE}/instances/${serverId}/global/health`, {
+        const healthResponse = await fetch(`${getApiBase()}/instances/${serverId}/global/health`, {
           signal: AbortSignal.timeout(5000),
         });
 
@@ -239,7 +238,7 @@ export function AddServerFlow({ onClose, onServerAdded }: AddServerFlowProps) {
 
           // Get metadata via proxy
           addLog('Fetching server metadata...');
-          const metaResponse = await fetch(`${API_BASE}/instances/${serverId}/global/metadata`);
+          const metaResponse = await fetch(`${getApiBase()}/instances/${serverId}/global/metadata`);
 
           if (metaResponse.ok) {
             const metadata = await metaResponse.json();
@@ -247,7 +246,7 @@ export function AddServerFlow({ onClose, onServerAdded }: AddServerFlowProps) {
 
             // Save metadata to server template
             addLog('Saving server metadata...');
-            await fetch(`${API_BASE}/servers/${serverId}`, {
+            await fetch(`${getApiBase()}/servers/${serverId}`, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -287,7 +286,7 @@ export function AddServerFlow({ onClose, onServerAdded }: AddServerFlowProps) {
 
         // Stop the server after verification
         addLog('Stopping verification server...');
-        await fetch(`${API_BASE}/instances/stop`, {
+        await fetch(`${getApiBase()}/instances/stop`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

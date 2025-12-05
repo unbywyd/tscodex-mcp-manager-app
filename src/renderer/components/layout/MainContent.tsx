@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Server, Key, RotateCcw, Globe, Folder } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { ServerList } from '../servers/ServerList';
 import { SecretsView } from '../secrets/SecretsView';
 import { ServerDetailPage } from '../servers/ServerDetailPage';
 import { McpToolsPage } from '../mcp-tools';
+import { AIAssistantPage } from '../pages/AIAssistantPage';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,8 +25,28 @@ export function MainContent({ workspaceId }: MainContentProps) {
   const { selectedTab, setSelectedTab, workspaces, resetWorkspaceSecrets } = useAppStore();
   const [selectedServerId, setSelectedServerId] = useState<string | null>(null);
   const [showMcpTools, setShowMcpTools] = useState(false);
+  const [showAIAssistant, setShowAIAssistant] = useState(false);
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+
+  // Handle hash-based routing
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.slice(1); // Remove #
+      if (hash === '/ai-assistant') {
+        setShowAIAssistant(true);
+      } else {
+        setShowAIAssistant(false);
+      }
+    };
+
+    // Check initial hash
+    handleHashChange();
+
+    // Listen for hash changes
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
 
   const isGlobal = workspaceId === 'global';
   const workspace = isGlobal
@@ -48,6 +69,18 @@ export function MainContent({ workspaceId }: MainContentProps) {
     }
   };
 
+  // If AI Assistant is selected, show its page
+  if (showAIAssistant) {
+    return (
+      <AIAssistantPage
+        onBack={() => {
+          setShowAIAssistant(false);
+          window.location.hash = '';
+        }}
+      />
+    );
+  }
+
   // If MCP Tools is selected, show its page
   if (showMcpTools) {
     return (
@@ -67,9 +100,9 @@ export function MainContent({ workspaceId }: MainContentProps) {
   }
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
+    <div className="flex-1 flex flex-col overflow-hidden main-content-bg">
       {/* Header with workspace name and tabs */}
-      <div className="border-b border-border-default">
+      <div className="border-b border-border-default relative z-10">
         {/* Workspace title */}
         <div className="px-6 pt-4 pb-2">
           <div className="flex items-start justify-between gap-4">
@@ -131,7 +164,7 @@ export function MainContent({ workspaceId }: MainContentProps) {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 overflow-y-auto p-6 relative z-10">
         {selectedTab === 'servers' ? (
           <ServerList
             workspaceId={workspaceId}

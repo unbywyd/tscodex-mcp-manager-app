@@ -20,17 +20,18 @@ import {
   Loader2,
   AlertTriangle,
   Info,
+  Sparkles,
 } from 'lucide-react';
 import type {
   ServerPermissions,
   EnvPermissions,
   ContextPermissions,
   SecretsPermissions,
+  AIPermissions,
 } from '../../../shared/types';
-import { DEFAULT_SERVER_PERMISSIONS } from '../../../shared/types';
+import { DEFAULT_SERVER_PERMISSIONS, DEFAULT_AI_PERMISSIONS } from '../../../shared/types';
 import { cn } from '../../lib/utils';
-
-const API_BASE = 'http://127.0.0.1:4040/api';
+import { getApiBase } from '../../lib/api';
 
 interface ServerPermissionsEditorProps {
   serverId: string;
@@ -92,7 +93,7 @@ export function ServerPermissionsEditor({
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE}/servers/${serverId}/permissions/${workspaceId}`);
+      const response = await fetch(`${getApiBase()}/servers/${serverId}/permissions/${workspaceId}`);
       const data = await response.json();
 
       if (data.success) {
@@ -116,7 +117,7 @@ export function ServerPermissionsEditor({
     try {
       if (activeTab === 'global') {
         // Save global permissions
-        const response = await fetch(`${API_BASE}/servers/${serverId}/permissions`, {
+        const response = await fetch(`${getApiBase()}/servers/${serverId}/permissions`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ permissions: editingPermissions }),
@@ -131,7 +132,7 @@ export function ServerPermissionsEditor({
         setIsLegacy(false);
       } else {
         // Save workspace override
-        const response = await fetch(`${API_BASE}/servers/${serverId}/permissions/${workspaceId}`, {
+        const response = await fetch(`${getApiBase()}/servers/${serverId}/permissions/${workspaceId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ permissionsOverride: editingPermissions }),
@@ -158,7 +159,7 @@ export function ServerPermissionsEditor({
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE}/servers/${serverId}/permissions/${workspaceId}`, {
+      const response = await fetch(`${getApiBase()}/servers/${serverId}/permissions/${workspaceId}`, {
         method: 'DELETE',
       });
       const data = await response.json();
@@ -197,6 +198,14 @@ export function ServerPermissionsEditor({
     setEditingPermissions((prev) => ({
       ...prev,
       secrets: { ...prev.secrets, ...updates },
+    }));
+    setHasChanges(true);
+  };
+
+  const updateAI = (updates: Partial<AIPermissions>) => {
+    setEditingPermissions((prev) => ({
+      ...prev,
+      ai: { ...(prev.ai || DEFAULT_AI_PERMISSIONS), ...updates },
     }));
     setHasChanges(true);
   };
@@ -453,6 +462,48 @@ export function ServerPermissionsEditor({
         )}
       </section>
 
+      {/* AI Access Section */}
+      <section className="space-y-4">
+        <div className="flex items-center gap-2">
+          <Sparkles className="w-5 h-5 text-teal-400" />
+          <h3 className="text-sm font-medium text-white">AI Assistant Access</h3>
+        </div>
+
+        <PermissionToggle
+          icon={<Sparkles className="w-4 h-4 text-teal-400" />}
+          label="Allow AI Access"
+          description="Server can use AI Assistant API via secure proxy"
+          checked={editingPermissions.ai?.allowAccess ?? false}
+          onChange={(v) => updateAI({ allowAccess: v })}
+        />
+
+        {editingPermissions.ai?.allowAccess && (
+          <div className="space-y-4 pl-4 border-l-2 border-teal-500/30">
+            {/* Allowed Models */}
+            <AIModelsEditor
+              allowedModels={editingPermissions.ai?.allowedModels ?? []}
+              onChange={(models) => updateAI({ allowedModels: models })}
+            />
+
+            {/* Rate Limit */}
+            <div className="p-4 rounded-lg bg-gray-800/50 space-y-2">
+              <label className="text-sm text-gray-300">Rate Limit (requests/minute)</label>
+              <input
+                type="number"
+                min="0"
+                value={editingPermissions.ai?.rateLimit ?? 0}
+                onChange={(e) => updateAI({ rateLimit: parseInt(e.target.value) || 0 })}
+                placeholder="0 = unlimited"
+                className="w-full px-3 py-2 bg-bg-secondary border border-border-default rounded-md text-sm text-white placeholder-gray-400 focus:outline-none focus:border-teal-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              />
+              <p className="text-xs text-gray-500">
+                Set to 0 for unlimited requests. Recommended: 10-60 per minute.
+              </p>
+            </div>
+          </div>
+        )}
+      </section>
+
       {/* Actions */}
       <div className="flex items-center justify-between pt-4 border-t border-gray-700">
         <div>
@@ -631,5 +682,75 @@ function RadioOption({ selected, onSelect, label, description, badge }: RadioOpt
         <p className="text-xs text-gray-500">{description}</p>
       </div>
     </button>
+  );
+}
+
+// AI Models editor
+interface AIModelsEditorProps {
+  allowedModels: string[];
+  onChange: (models: string[]) => void;
+}
+
+function AIModelsEditor({ allowedModels, onChange }: AIModelsEditorProps) {
+  const [newModel, setNewModel] = useState('');
+
+  const addModel = () => {
+    const trimmed = newModel.trim();
+    if (trimmed && !allowedModels.includes(trimmed)) {
+      onChange([...allowedModels, trimmed]);
+      setNewModel('');
+    }
+  };
+
+  const removeModel = (model: string) => {
+    onChange(allowedModels.filter((m) => m !== model));
+  };
+
+  return (
+    <div className="p-4 rounded-lg bg-gray-800/50 space-y-3">
+      <label className="text-sm text-gray-300">Allowed Models</label>
+      <p className="text-xs text-gray-500">
+        Leave empty to only allow the default model. Add specific models to give the server more options.
+      </p>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={newModel}
+          onChange={(e) => setNewModel(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && addModel()}
+          placeholder="gpt-4o, gpt-3.5-turbo, etc."
+          className="flex-1 px-3 py-2 bg-bg-secondary border border-border-default rounded-md text-sm text-white placeholder-gray-400 focus:outline-none focus:border-teal-500"
+        />
+        <button
+          onClick={addModel}
+          className="px-3 py-2 bg-white text-black rounded-md hover:bg-gray-200 transition-colors"
+        >
+          <Plus className="w-4 h-4" />
+        </button>
+      </div>
+      {allowedModels.length > 0 ? (
+        <div className="flex flex-wrap gap-2">
+          {allowedModels.map((model) => (
+            <span
+              key={model}
+              className="flex items-center gap-1 px-2 py-1 bg-teal-500/20 rounded text-xs text-teal-300"
+            >
+              <Sparkles className="w-3 h-3" />
+              {model}
+              <button
+                onClick={() => removeModel(model)}
+                className="text-teal-400 hover:text-white"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-gray-500 italic">
+          No additional models. Server can only use the default model from AI Assistant settings.
+        </p>
+      )}
+    </div>
   );
 }

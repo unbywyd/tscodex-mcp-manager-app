@@ -3,16 +3,18 @@
  */
 
 import { useState, useEffect } from 'react';
-import { X, Check, AlertCircle, Globe, Code, FileText } from 'lucide-react';
+import { X, Check, AlertCircle, Globe, Code, FileText, Sparkles } from 'lucide-react';
 import { useMcpToolsStore } from '../../stores/mcpToolsStore';
 import type { DynamicTool, ToolExecutor, JsonSchema, EditorMode } from '../../../host/mcp-tools/types';
-import { cn } from '../../lib/utils';
+import { cn, tryJsonParse } from '../../lib/utils';
 import { Select } from '../ui/select';
 import { CodeEditor } from '../ui/code-editor';
 import { JsonEditor } from '../ui/json-editor';
 import { RichTextEditor } from '../ui/rich-text-editor';
 import { MarkdownEditor } from '../ui/markdown-editor';
 import { InfoDialog } from '../ui/dialogs';
+import { AIAssistantPanel } from './AIAssistantPanel';
+import { AIConfigDialog } from './AIConfigDialog';
 
 interface ToolEditorProps {
   tool?: DynamicTool;
@@ -88,6 +90,10 @@ export function ToolEditor({ tool, onClose }: ToolEditorProps) {
     message: string;
   }>({ open: false, title: '', message: '' });
 
+  // AI Assistant state
+  const [showAIAssistant, setShowAIAssistant] = useState(false);
+  const [showAIConfig, setShowAIConfig] = useState(false);
+
   // Validate name on change
   useEffect(() => {
     const timer = setTimeout(async () => {
@@ -147,12 +153,12 @@ export function ToolEditor({ tool, onClose }: ToolEditorProps) {
     if (schemaError) return;
     if (executorType === 'function' && functionError) return;
 
-    let inputSchema: JsonSchema;
-    try {
-      inputSchema = JSON.parse(schemaText);
-    } catch {
+    const schemaResult = tryJsonParse<JsonSchema>(schemaText);
+    if (!schemaResult.success) {
+      setSchemaJsonError(schemaResult.error);
       return;
     }
+    const inputSchema = schemaResult.data;
 
     // Build executor
     let executor: ToolExecutor;
@@ -165,15 +171,21 @@ export function ToolEditor({ tool, onClose }: ToolEditorProps) {
           editorMode: editorMode,
         };
         break;
-      case 'http':
+      case 'http': {
+        const headersResult = tryJsonParse<Record<string, string>>(httpHeaders || '{}');
+        if (!headersResult.success) {
+          setHeadersJsonError(headersResult.error);
+          return;
+        }
         executor = {
           type: 'http',
           method: httpMethod,
           url: httpUrl,
-          headers: httpHeaders ? JSON.parse(httpHeaders) : undefined,
+          headers: headersResult.data,
           body: httpBody || undefined,
         };
         break;
+      }
       case 'function':
         executor = {
           type: 'function',
@@ -217,6 +229,37 @@ export function ToolEditor({ tool, onClose }: ToolEditorProps) {
   const hasJsonErrors = schemaJsonError || headersJsonError || bodyJsonError || (editorMode === 'json' && staticJsonError);
   const isValid = name && !nameError && !schemaError && !hasJsonErrors && (executorType !== 'function' || !functionError);
 
+  // Handle AI generated tool data
+  const handleAIGenerated = (data: Record<string, unknown>) => {
+    const generated = data as {
+      name: string;
+      description: string;
+      inputSchema: JsonSchema;
+      executorType: 'static' | 'http' | 'function';
+      executor: Record<string, unknown>;
+    };
+
+    // Apply generated values to form
+    setName(generated.name);
+    setDescription(generated.description);
+    setSchemaText(JSON.stringify(generated.inputSchema, null, 2));
+    setExecutorType(generated.executorType);
+
+    // Apply executor-specific values
+    if (generated.executorType === 'static' && generated.executor) {
+      setStaticContent((generated.executor.content as string) || '');
+      setStaticContentType((generated.executor.contentType as 'text' | 'json') || 'text');
+      setEditorMode((generated.executor.editorMode as EditorMode) || 'text');
+    } else if (generated.executorType === 'http' && generated.executor) {
+      setHttpMethod((generated.executor.method as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE') || 'GET');
+      setHttpUrl((generated.executor.url as string) || '');
+      setHttpHeaders(generated.executor.headers ? JSON.stringify(generated.executor.headers, null, 2) : '{}');
+      setHttpBody((generated.executor.body as string) || '');
+    } else if (generated.executorType === 'function' && generated.executor) {
+      setFunctionCode((generated.executor.code as string) || '');
+    }
+  };
+
   return (
     <div className="flex flex-col h-full max-h-[90vh]">
       {/* Header */}
@@ -224,16 +267,44 @@ export function ToolEditor({ tool, onClose }: ToolEditorProps) {
         <h2 className="text-lg font-semibold text-white">
           {tool ? 'Edit Tool' : 'New Tool'}
         </h2>
-        <button
-          onClick={onClose}
-          className="p-1 text-gray-400 hover:text-white transition-colors"
-        >
-          <X size={20} />
-        </button>
+        <div className="flex items-center gap-2">
+          {!tool && (
+            <button
+              onClick={() => setShowAIAssistant(!showAIAssistant)}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
+                showAIAssistant
+                  ? 'bg-teal-600 text-white'
+                  : 'bg-teal-500/10 text-teal-400 hover:bg-teal-500/20'
+              )}
+              title="Generate with AI"
+            >
+              <Sparkles size={14} />
+              AI
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="p-1 text-gray-400 hover:text-white transition-colors"
+          >
+            <X size={20} />
+          </button>
+        </div>
       </div>
 
       {/* Content */}
       <div className="flex-1 overflow-auto p-4 space-y-4">
+        {/* AI Assistant Panel */}
+        {!tool && (
+          <AIAssistantPanel
+            type="tool"
+            isOpen={showAIAssistant}
+            onClose={() => setShowAIAssistant(false)}
+            onGenerated={handleAIGenerated}
+            onConfigureAI={() => setShowAIConfig(true)}
+          />
+        )}
+
         {/* Basic Info */}
         <div className="space-y-3">
           <div>
@@ -546,6 +617,16 @@ export function ToolEditor({ tool, onClose }: ToolEditorProps) {
         description={errorDialog.message}
         variant="error"
         onClose={() => setErrorDialog({ open: false, title: '', message: '' })}
+      />
+
+      {/* AI Config dialog */}
+      <AIConfigDialog
+        open={showAIConfig}
+        onClose={() => setShowAIConfig(false)}
+        onConfigured={() => {
+          // AI is now configured, show the assistant panel
+          setShowAIAssistant(true);
+        }}
       />
     </div>
   );

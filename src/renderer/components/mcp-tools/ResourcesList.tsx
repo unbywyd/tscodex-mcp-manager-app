@@ -52,6 +52,7 @@ export function ResourcesList() {
   const selectAllCheckboxRef = useRef<HTMLInputElement>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
 
   // Dialog states
   const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; resource: DynamicResource | null }>({
@@ -155,13 +156,26 @@ export function ResourcesList() {
     fileInputRef.current?.click();
   };
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  const processFile = async (file: File) => {
     try {
       const text = await file.text();
       const data = JSON.parse(text);
+      
+      // Auto-detect what types of entities are in the file
+      const hasTools = Array.isArray(data.tools) && data.tools.length > 0;
+      const hasPrompts = Array.isArray(data.prompts) && data.prompts.length > 0;
+      const hasResources = Array.isArray(data.resources) && data.resources.length > 0;
+      
+      if (!hasTools && !hasPrompts && !hasResources) {
+        setInfoDialog({
+          open: true,
+          title: 'Invalid File',
+          message: 'File does not contain any tools, prompts, or resources',
+          variant: 'error',
+        });
+        return;
+      }
+      
       setImportStrategyDialog({ open: true, data });
     } catch (error) {
       console.error('Import failed:', error);
@@ -178,6 +192,51 @@ export function ResourcesList() {
     }
   };
 
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await processFile(file);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  };
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+
+    if (!file.name.endsWith('.json')) {
+      setInfoDialog({
+        open: true,
+        title: 'Invalid File',
+        message: 'Please drop a JSON file',
+        variant: 'error',
+      });
+      return;
+    }
+
+    await processFile(file);
+  };
+
   const handleImportStrategy = async (strategy: string) => {
     if (!importStrategyDialog.data) return;
 
@@ -186,16 +245,31 @@ export function ResourcesList() {
     try {
       const data = importStrategyDialog.data;
 
+      // Auto-detect what types of entities are in the file
+      const hasTools = Array.isArray(data.tools) && data.tools.length > 0;
+      const hasPrompts = Array.isArray(data.prompts) && data.prompts.length > 0;
+      const hasResources = Array.isArray(data.resources) && data.resources.length > 0;
+
       const result = await importData(data, {
         conflictStrategy: strategy as 'replace' | 'skip',
-        importTools: false,
-        importPrompts: false,
-        importResources: true,
+        importTools: hasTools,
+        importPrompts: hasPrompts,
+        importResources: hasResources,
       });
 
-      let message = `Import completed!\n\nImported: ${result.imported.resources} resources`;
-      if (result.skipped.resources.length) {
-        message += `\nSkipped: ${result.skipped.resources.length} items`;
+      const importedParts: string[] = [];
+      if (result.imported.tools > 0) importedParts.push(`${result.imported.tools} tools`);
+      if (result.imported.prompts > 0) importedParts.push(`${result.imported.prompts} prompts`);
+      if (result.imported.resources > 0) importedParts.push(`${result.imported.resources} resources`);
+
+      const skippedParts: string[] = [];
+      if (result.skipped.tools.length > 0) skippedParts.push(`${result.skipped.tools.length} tools`);
+      if (result.skipped.prompts.length > 0) skippedParts.push(`${result.skipped.prompts.length} prompts`);
+      if (result.skipped.resources.length > 0) skippedParts.push(`${result.skipped.resources.length} resources`);
+
+      let message = `Import completed!\n\nImported: ${importedParts.join(', ')}`;
+      if (skippedParts.length > 0) {
+        message += `\nSkipped: ${skippedParts.join(', ')}`;
       }
       if (result.errors.length) {
         message += `\nErrors: ${result.errors.length}`;
@@ -220,9 +294,15 @@ export function ResourcesList() {
   };
 
   return (
-    <div className="space-y-4">
+    <div
+      className={cn('space-y-4 w-full min-w-0 overflow-hidden', isDragOver && 'ring-2 ring-blue-500 ring-offset-2 ring-offset-gray-900 rounded-lg')}
+      onDragOver={handleDragOver}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       {/* Header with actions */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-center gap-3">
           {/* Select All checkbox */}
           {resources.length > 0 && (
@@ -238,7 +318,7 @@ export function ResourcesList() {
           )}
           <h2 className="text-sm font-medium text-gray-400">Resources</h2>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {/* Hidden file input for import */}
           <input
             ref={fileInputRef}
@@ -306,7 +386,7 @@ export function ResourcesList() {
               <div
                 key={resource.id}
                 className={cn(
-                  'flex items-center gap-4 p-4 rounded-lg border transition-colors',
+                  'flex items-center gap-4 p-4 rounded-lg border transition-colors w-full min-w-0',
                   resource.enabled
                     ? 'bg-gray-800/50 border-gray-700 hover:border-gray-600'
                     : 'bg-gray-800/30 border-gray-700/50 opacity-60',
@@ -333,13 +413,13 @@ export function ResourcesList() {
 
                 {/* Info */}
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-sm font-medium text-white truncate">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <h3 className="text-sm font-medium text-white truncate flex-shrink-0">
                       {resource.name}
                     </h3>
                     <span
                       className={cn(
-                        'flex items-center gap-1 px-1.5 py-0.5 rounded text-xs',
+                        'flex items-center gap-1 px-1.5 py-0.5 rounded text-xs flex-shrink-0',
                         'bg-gray-700 text-gray-400'
                       )}
                     >
@@ -347,13 +427,13 @@ export function ResourcesList() {
                       {getExecutorLabel(resource.executor.type)}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-400 truncate mt-0.5">
+                  <p className="text-xs text-gray-400 mt-0.5 line-clamp-2">
                     {resource.description}
                   </p>
-                  <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
-                    <span className="font-mono">{resource.uri}</span>
+                  <div className="flex items-center gap-2 mt-1 text-xs text-gray-500 min-w-0">
+                    <span className="hidden tablet:block font-mono truncate min-w-0 flex-1">{resource.uri}</span>
                     {resource.mimeType && (
-                      <span className="text-gray-600">• {resource.mimeType}</span>
+                      <span className="text-gray-600 flex-shrink-0 whitespace-nowrap">• {resource.mimeType}</span>
                     )}
                   </div>
                 </div>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, User, Mail } from 'lucide-react';
+import { X, User, Mail, HelpCircle, ArrowLeft } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 
 interface SignInModalProps {
@@ -15,7 +15,8 @@ export function SignInModal({ isOpen, onClose }: SignInModalProps) {
   const [error, setError] = useState<string | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [fullNameError, setFullNameError] = useState<string | null>(null);
-
+  const [showHelpModal, setShowHelpModal] = useState(false);
+  
   // Email validation regex
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -116,7 +117,16 @@ export function SignInModal({ isOpen, onClose }: SignInModalProps) {
       <div className="relative bg-bg-primary border border-border-default rounded-lg shadow-xl w-full max-w-md mx-4">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border-default">
-          <h2 className="text-lg font-semibold">Sign In</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-semibold">Sign In</h2>
+            <button
+              onClick={() => setShowHelpModal(true)}
+              className="p-1 text-gray-500 hover:text-gray-300 transition-colors"
+              title="What is sign in?"
+            >
+              <HelpCircle className="w-4 h-4" />
+            </button>
+          </div>
           <button
             onClick={onClose}
             className="btn-icon text-gray-400 hover:text-white"
@@ -198,6 +208,75 @@ export function SignInModal({ isOpen, onClose }: SignInModalProps) {
           </div>
         </form>
       </div>
+
+      {/* Help Modal */}
+      {showHelpModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => setShowHelpModal(false)}
+          />
+
+          {/* Modal */}
+          <div className="relative bg-bg-card border border-border-default rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center gap-3 p-4 border-b border-border-default flex-shrink-0">
+              <button
+                onClick={() => setShowHelpModal(false)}
+                className="p-1 text-gray-400 hover:text-white transition-colors"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+              <h2 className="text-lg font-semibold">What is Sign In?</h2>
+            </div>
+
+            {/* Scrollable Content */}
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="max-w-none">
+                <p className="text-gray-300 leading-relaxed">
+                  MCP Manager uses a <strong>pseudo-authorization</strong> system that allows you to identify yourself to MCP servers. When you sign in, you provide your name and email address, which are then sent to MCP servers so they can recognize you as a specific user.
+                </p>
+
+                <h3 className="text-white font-medium mt-6 mb-3">How It Works</h3>
+                <p className="text-gray-300 leading-relaxed">
+                  When you sign in with your name and email, these credentials are stored locally and transmitted to MCP servers along with a unique authentication token. The server is responsible for generating and managing this token, which it uses to verify your identity and provide personalized features.
+                </p>
+
+                <h3 className="text-white font-medium mt-6 mb-3">Authentication Token</h3>
+                <p className="text-gray-300 leading-relaxed">
+                  The authentication token is stored as <code className="px-1.5 py-0.5 bg-bg-secondary rounded font-mono text-sm">SECRET_MCP_AUTH_TOKEN</code> in the server's configuration. This token can be set at three different levels:
+                </p>
+                <ul className="list-disc list-inside text-gray-300 space-y-2 mt-3 ml-2">
+                  <li><strong>Globally:</strong> Set in the Global workspace secrets, applying to all workspaces by default</li>
+                  <li><strong>Workspace:</strong> Override the global token for a specific workspace</li>
+                  <li><strong>Server:</strong> Override both global and workspace tokens for a specific server instance</li>
+                </ul>
+
+                <h3 className="text-white font-medium mt-6 mb-3">Configuration</h3>
+                <p className="text-gray-300 leading-relaxed">
+                  To configure authorization for a server, navigate to the server's configuration page and open the <strong>Connection</strong> tab. In the Authorization section, you can enter your authentication token. This token, along with your name and email from sign in, will be passed to the server as environment variables when the server starts.
+                </p>
+
+                <h3 className="text-white font-medium mt-6 mb-3">Server Responsibility</h3>
+                <p className="text-gray-300 leading-relaxed">
+                  It is the MCP server's responsibility to provide a unique token that it can process and validate. The server should handle token generation, validation, and user identification based on the provided credentials (name, email) and token.
+                </p>
+              </div>
+            </div>
+
+            {/* Fixed Footer */}
+            <div className="p-4 border-t border-border-default flex-shrink-0">
+              <button
+                onClick={() => setShowHelpModal(false)}
+                className="btn btn-primary w-full"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

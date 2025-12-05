@@ -2,6 +2,7 @@ import { Copy, Check, ExternalLink, X, Link2, Server, Wrench, Package, MessageSq
 import { useState } from 'react';
 import type { ServerInfo } from '../../../shared/types';
 import { ServerContextEditor } from './ServerContextEditor';
+import { getMcpUrl } from '../../lib/api';
 
 type ModalTab = 'info' | 'context';
 
@@ -21,7 +22,7 @@ export function WorkspaceServerInfoModal({
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<ModalTab>('info');
 
-  const proxyUrl = `http://127.0.0.1:4040/mcp/${server.id}/${workspaceId}`;
+  const proxyUrl = getMcpUrl(server.id, workspaceId);
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(proxyUrl);

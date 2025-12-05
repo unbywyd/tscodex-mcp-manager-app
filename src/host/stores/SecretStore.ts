@@ -1,5 +1,8 @@
 /**
  * SecretStore - Secure secret storage using OS keychain
+ *
+ * On Linux, this requires libsecret and a secret service (GNOME Keyring or KDE Wallet).
+ * If not available, operations will fail gracefully with appropriate error messages.
  */
 
 import keytar from 'keytar';
@@ -7,7 +10,67 @@ import keytar from 'keytar';
 const SERVICE_NAME = 'mcp-manager';
 const GLOBAL_SCOPE = 'global';
 
+/**
+ * Check if we're running on Linux and keytar might have issues
+ */
+const isLinux = process.platform === 'linux';
+
+/**
+ * Flag to track if keytar is available (set on first error)
+ */
+let keytarAvailable = true;
+let keytarErrorMessage: string | null = null;
+
+/**
+ * Wrapper to handle keytar errors gracefully on Linux
+ */
+async function safeKeytarOperation<T>(
+  operation: () => Promise<T>,
+  fallback: T,
+  context: string
+): Promise<T> {
+  if (!keytarAvailable) {
+    console.warn(`[SecretStore] Keytar unavailable, skipping ${context}: ${keytarErrorMessage}`);
+    return fallback;
+  }
+
+  try {
+    return await operation();
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+
+    // Check for common Linux keytar errors
+    if (isLinux && (
+      errorMsg.includes('libsecret') ||
+      errorMsg.includes('Secret Service') ||
+      errorMsg.includes('org.freedesktop.secrets') ||
+      errorMsg.includes('Cannot autolaunch D-Bus')
+    )) {
+      keytarAvailable = false;
+      keytarErrorMessage = 'Secure storage unavailable. On Linux, install libsecret-1-dev and ensure GNOME Keyring or KDE Wallet is running.';
+      console.error(`[SecretStore] ${keytarErrorMessage}`);
+    } else {
+      console.error(`[SecretStore] Failed to ${context}:`, error);
+    }
+
+    return fallback;
+  }
+}
+
 export class SecretStore {
+  /**
+   * Check if secure storage is available
+   */
+  isAvailable(): boolean {
+    return keytarAvailable;
+  }
+
+  /**
+   * Get the error message if keytar is unavailable
+   */
+  getUnavailableReason(): string | null {
+    return keytarErrorMessage;
+  }
   /**
    * Get all secrets for a server
    */
@@ -17,22 +80,23 @@ export class SecretStore {
     workspaceId?: string
   ): Promise<Record<string, string>> {
     const prefix = this.getPrefix(serverId, scope, workspaceId);
-    const secrets: Record<string, string> = {};
 
-    try {
-      const credentials = await keytar.findCredentials(SERVICE_NAME);
+    return safeKeytarOperation(
+      async () => {
+        const secrets: Record<string, string> = {};
+        const credentials = await keytar.findCredentials(SERVICE_NAME);
 
-      for (const cred of credentials) {
-        if (cred.account.startsWith(prefix)) {
-          const key = cred.account.slice(prefix.length);
-          secrets[key] = cred.password;
+        for (const cred of credentials) {
+          if (cred.account.startsWith(prefix)) {
+            const key = cred.account.slice(prefix.length);
+            secrets[key] = cred.password;
+          }
         }
-      }
-    } catch (error) {
-      console.error('Failed to get secrets:', error);
-    }
-
-    return secrets;
+        return secrets;
+      },
+      {},
+      `get secrets for ${serverId}`
+    );
   }
 
   /**
@@ -44,22 +108,23 @@ export class SecretStore {
     workspaceId?: string
   ): Promise<string[]> {
     const prefix = this.getPrefix(serverId, scope, workspaceId);
-    const keys: string[] = [];
 
-    try {
-      const credentials = await keytar.findCredentials(SERVICE_NAME);
+    return safeKeytarOperation(
+      async () => {
+        const keys: string[] = [];
+        const credentials = await keytar.findCredentials(SERVICE_NAME);
 
-      for (const cred of credentials) {
-        if (cred.account.startsWith(prefix)) {
-          const key = cred.account.slice(prefix.length);
-          keys.push(key);
+        for (const cred of credentials) {
+          if (cred.account.startsWith(prefix)) {
+            const key = cred.account.slice(prefix.length);
+            keys.push(key);
+          }
         }
-      }
-    } catch (error) {
-      console.error('Failed to get secret keys:', error);
-    }
-
-    return keys;
+        return keys;
+      },
+      [],
+      `get secret keys for ${serverId}`
+    );
   }
 
   /**
@@ -74,9 +139,27 @@ export class SecretStore {
   ): Promise<void> {
     const account = this.getAccount(serverId, key, scope, workspaceId);
 
+    if (!keytarAvailable) {
+      throw new Error(keytarErrorMessage || 'Secure storage unavailable');
+    }
+
     try {
       await keytar.setPassword(SERVICE_NAME, account, value);
     } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+
+      // Check for Linux-specific errors
+      if (isLinux && (
+        errorMsg.includes('libsecret') ||
+        errorMsg.includes('Secret Service') ||
+        errorMsg.includes('org.freedesktop.secrets') ||
+        errorMsg.includes('Cannot autolaunch D-Bus')
+      )) {
+        keytarAvailable = false;
+        keytarErrorMessage = 'Secure storage unavailable. On Linux, install libsecret-1-dev and ensure GNOME Keyring or KDE Wallet is running.';
+        throw new Error(keytarErrorMessage);
+      }
+
       console.error('Failed to set secret:', error);
       throw error;
     }
@@ -93,30 +176,31 @@ export class SecretStore {
   ): Promise<boolean> {
     const account = this.getAccount(serverId, key, scope, workspaceId);
 
-    try {
-      return await keytar.deletePassword(SERVICE_NAME, account);
-    } catch (error) {
-      console.error('Failed to delete secret:', error);
-      return false;
-    }
+    return safeKeytarOperation(
+      () => keytar.deletePassword(SERVICE_NAME, account),
+      false,
+      `delete secret ${key} for ${serverId}`
+    );
   }
 
   /**
    * Delete all secrets for a server
    */
   async deleteAllSecrets(serverId: string): Promise<void> {
-    try {
-      const credentials = await keytar.findCredentials(SERVICE_NAME);
-      const serverPrefix = `${serverId}:`;
+    await safeKeytarOperation(
+      async () => {
+        const credentials = await keytar.findCredentials(SERVICE_NAME);
+        const serverPrefix = `${serverId}:`;
 
-      for (const cred of credentials) {
-        if (cred.account.startsWith(serverPrefix)) {
-          await keytar.deletePassword(SERVICE_NAME, cred.account);
+        for (const cred of credentials) {
+          if (cred.account.startsWith(serverPrefix)) {
+            await keytar.deletePassword(SERVICE_NAME, cred.account);
+          }
         }
-      }
-    } catch (error) {
-      console.error('Failed to delete all secrets:', error);
-    }
+      },
+      undefined,
+      `delete all secrets for ${serverId}`
+    );
   }
 
   /**
@@ -168,25 +252,44 @@ export class SecretStore {
    * Get user profile
    */
   async getProfile(): Promise<{ fullName: string; email: string } | null> {
-    try {
-      const data = await keytar.getPassword(SERVICE_NAME, this.PROFILE_KEY);
-      if (data) {
-        return JSON.parse(data);
-      }
-    } catch (error) {
-      console.error('Failed to get profile:', error);
-    }
-    return null;
+    return safeKeytarOperation(
+      async () => {
+        const data = await keytar.getPassword(SERVICE_NAME, this.PROFILE_KEY);
+        if (data) {
+          return JSON.parse(data);
+        }
+        return null;
+      },
+      null,
+      'get profile'
+    );
   }
 
   /**
    * Set user profile
    */
   async setProfile(fullName: string, email: string): Promise<void> {
+    if (!keytarAvailable) {
+      throw new Error(keytarErrorMessage || 'Secure storage unavailable');
+    }
+
     try {
       const data = JSON.stringify({ fullName, email });
       await keytar.setPassword(SERVICE_NAME, this.PROFILE_KEY, data);
     } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+
+      if (isLinux && (
+        errorMsg.includes('libsecret') ||
+        errorMsg.includes('Secret Service') ||
+        errorMsg.includes('org.freedesktop.secrets') ||
+        errorMsg.includes('Cannot autolaunch D-Bus')
+      )) {
+        keytarAvailable = false;
+        keytarErrorMessage = 'Secure storage unavailable. On Linux, install libsecret-1-dev and ensure GNOME Keyring or KDE Wallet is running.';
+        throw new Error(keytarErrorMessage);
+      }
+
       console.error('Failed to set profile:', error);
       throw error;
     }
@@ -196,11 +299,11 @@ export class SecretStore {
    * Delete user profile
    */
   async deleteProfile(): Promise<void> {
-    try {
-      await keytar.deletePassword(SERVICE_NAME, this.PROFILE_KEY);
-    } catch (error) {
-      console.error('Failed to delete profile:', error);
-    }
+    await safeKeytarOperation(
+      () => keytar.deletePassword(SERVICE_NAME, this.PROFILE_KEY),
+      false,
+      'delete profile'
+    );
   }
 
   // ============================================================================
@@ -301,5 +404,78 @@ export class SecretStore {
       this.mcpToolsSecretsCache.clear();
     }
     return result;
+  }
+
+  // ============================================================================
+  // AI Assistant Secrets
+  // ============================================================================
+
+  private readonly AI_ASSISTANT_KEY = '__ai-assistant__';
+
+  /**
+   * Get an AI Assistant secret
+   * Keys: API_KEY, BASE_URL, DEFAULT_MODEL
+   */
+  async getAISecret(key: string): Promise<string | null> {
+    return safeKeytarOperation(
+      () => keytar.getPassword(SERVICE_NAME, `${this.AI_ASSISTANT_KEY}:${key}`),
+      null,
+      `get AI secret ${key}`
+    );
+  }
+
+  /**
+   * Set an AI Assistant secret
+   */
+  async setAISecret(key: string, value: string): Promise<void> {
+    if (!keytarAvailable) {
+      throw new Error(keytarErrorMessage || 'Secure storage unavailable');
+    }
+
+    try {
+      await keytar.setPassword(SERVICE_NAME, `${this.AI_ASSISTANT_KEY}:${key}`, value);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+
+      if (isLinux && (
+        errorMsg.includes('libsecret') ||
+        errorMsg.includes('Secret Service') ||
+        errorMsg.includes('org.freedesktop.secrets') ||
+        errorMsg.includes('Cannot autolaunch D-Bus')
+      )) {
+        keytarAvailable = false;
+        keytarErrorMessage = 'Secure storage unavailable. On Linux, install libsecret-1-dev and ensure GNOME Keyring or KDE Wallet is running.';
+        throw new Error(keytarErrorMessage);
+      }
+
+      console.error('Failed to set AI secret:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete an AI Assistant secret
+   */
+  async deleteAISecret(key: string): Promise<boolean> {
+    return safeKeytarOperation(
+      () => keytar.deletePassword(SERVICE_NAME, `${this.AI_ASSISTANT_KEY}:${key}`),
+      false,
+      `delete AI secret ${key}`
+    );
+  }
+
+  /**
+   * Get AI Assistant config (without API key value)
+   */
+  async getAIConfig(): Promise<{ baseUrl: string | null; defaultModel: string | null; hasApiKey: boolean }> {
+    const baseUrl = await this.getAISecret('BASE_URL');
+    const defaultModel = await this.getAISecret('DEFAULT_MODEL');
+    const apiKey = await this.getAISecret('API_KEY');
+
+    return {
+      baseUrl,
+      defaultModel,
+      hasApiKey: !!apiKey,
+    };
   }
 }

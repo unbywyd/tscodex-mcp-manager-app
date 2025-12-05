@@ -22,9 +22,7 @@ import { ToolEditor } from './ToolEditor';
 import { PromptEditor } from './PromptEditor';
 import { ResourceEditor } from './ResourceEditor';
 import { cn } from '../../lib/utils';
-
-// MCP Tools endpoint URL
-const MCP_TOOLS_URL = 'http://127.0.0.1:4040/mcp-tools';
+import { MCP_TOOLS_URL } from '../../lib/api';
 
 interface McpToolsPageProps {
   onBack?: () => void;
@@ -92,18 +90,18 @@ export function McpToolsPage({ onBack }: McpToolsPageProps) {
       enabledCount: status?.enabledToolsCount || 0,
     },
     {
-      id: 'prompts' as const,
-      label: 'Prompts',
-      icon: MessageSquare,
-      count: status?.promptsCount || 0,
-      enabledCount: status?.enabledPromptsCount || 0,
-    },
-    {
       id: 'resources' as const,
       label: 'Resources',
       icon: FileText,
       count: status?.resourcesCount || 0,
       enabledCount: status?.enabledResourcesCount || 0,
+    },
+    {
+      id: 'prompts' as const,
+      label: 'Prompts',
+      icon: MessageSquare,
+      count: status?.promptsCount || 0,
+      enabledCount: status?.enabledPromptsCount || 0,
     },
   ];
 
@@ -118,7 +116,7 @@ export function McpToolsPage({ onBack }: McpToolsPageProps) {
   return (
     <div className="flex flex-col h-full flex-1">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-3 border-b border-gray-700">
         <div className="flex items-center gap-3">
           {onBack && (
             <button
@@ -129,7 +127,7 @@ export function McpToolsPage({ onBack }: McpToolsPageProps) {
             </button>
           )}
           <h1 className="text-lg font-semibold text-white">MCP Tools</h1>
-          <span className="text-xs text-gray-400">
+          <span className="hidden sm:inline text-xs text-gray-400">
             Dynamic tools, prompts & resources
           </span>
         </div>
@@ -163,23 +161,27 @@ export function McpToolsPage({ onBack }: McpToolsPageProps) {
       {/* Connection Info - show when enabled */}
       {status?.enabled && (
         <div className="px-4 py-2 bg-bg-secondary border-b border-border-default">
-          <div className="flex items-center gap-3">
-            <Link size={14} className="text-gray-500" />
-            <span className="text-xs text-gray-400">MCP Endpoint:</span>
-            <code className="px-2 py-0.5 bg-bg-tertiary rounded text-xs font-mono text-emerald-400">
-              {MCP_TOOLS_URL}
-            </code>
-            <button
-              onClick={handleCopyUrl}
-              className="p-1 text-gray-400 hover:text-white transition-colors"
-              title="Copy URL"
-            >
-              {copiedUrl ? (
-                <Check size={14} className="text-green-400" />
-              ) : (
-                <Copy size={14} />
-              )}
-            </button>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+            <div className="flex items-center gap-2">
+              <Link size={14} className="text-gray-500 flex-shrink-0" />
+              <span className="text-xs text-gray-400">MCP Endpoint:</span>
+            </div>
+            <div className="flex items-center gap-2 min-w-0">
+              <code className="px-2 py-0.5 bg-bg-tertiary rounded text-xs font-mono text-emerald-400 truncate">
+                {MCP_TOOLS_URL}
+              </code>
+              <button
+                onClick={handleCopyUrl}
+                className="p-1 text-gray-400 hover:text-white transition-colors flex-shrink-0"
+                title="Copy URL"
+              >
+                {copiedUrl ? (
+                  <Check size={14} className="text-green-400" />
+                ) : (
+                  <Copy size={14} />
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -6,8 +6,12 @@ import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, dialog } from 'el
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { exec } from 'child_process';
+import getPort from 'get-port';
 import { McpHost } from '../host';
 import { DEFAULT_HOST_PORT } from '../shared/types';
+
+// Track the actual port the host is running on (may differ from DEFAULT if port is busy)
+let actualHostPort: number = DEFAULT_HOST_PORT;
 
 // ESM compatibility - define __dirname for this module
 const __filename = fileURLToPath(import.meta.url);
@@ -136,6 +140,15 @@ async function createWindow(): Promise<void> {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+
+  // Send window state changes to renderer
+  mainWindow.on('maximize', () => {
+    mainWindow?.webContents.send('window:maximized');
+  });
+
+  mainWindow.on('unmaximize', () => {
+    mainWindow?.webContents.send('window:unmaximized');
+  });
 }
 
 /**
@@ -206,7 +219,7 @@ function updateTrayMenu(): void {
       enabled: false,
     },
     {
-      label: `Host: http://127.0.0.1:${DEFAULT_HOST_PORT}`,
+      label: `Host: http://127.0.0.1:${actualHostPort}`,
       enabled: false,
     },
     { type: 'separator' },
@@ -241,10 +254,8 @@ async function performQuit(): Promise<void> {
       console.log('[Main] McpHost stopped');
     }
 
-    // Force kill any remaining child processes on Windows
-    if (process.platform === 'win32') {
-      await forceKillChildProcesses();
-    }
+    // Force kill any remaining child processes (cross-platform)
+    await forceKillChildProcesses();
   } catch (error) {
     console.error('[Main] Error during quit cleanup:', error);
   }
@@ -254,40 +265,57 @@ async function performQuit(): Promise<void> {
 }
 
 /**
- * Force kill any remaining child processes (Windows)
+ * Force kill any remaining child processes (cross-platform)
  */
 function forceKillChildProcesses(): Promise<void> {
   return new Promise((resolve) => {
-    // Kill any node processes that might be MCP servers
-    // This is a safety net - normally stopAll() should handle this
-    exec('wmic process where "ParentProcessId=' + process.pid + '" get ProcessId 2>nul', (error, stdout) => {
-      if (error || !stdout) {
-        resolve();
-        return;
-      }
+    if (process.platform === 'win32') {
+      // Windows: Use wmic to find child processes and taskkill to terminate them
+      exec('wmic process where "ParentProcessId=' + process.pid + '" get ProcessId 2>nul', (error, stdout) => {
+        if (error || !stdout) {
+          resolve();
+          return;
+        }
 
-      const pids = stdout
-        .split('\n')
-        .map((line) => line.trim())
-        .filter((line) => /^\d+$/.test(line));
+        const pids = stdout
+          .split('\n')
+          .map((line) => line.trim())
+          .filter((line) => /^\d+$/.test(line));
 
-      if (pids.length === 0) {
-        resolve();
-        return;
-      }
+        if (pids.length === 0) {
+          resolve();
+          return;
+        }
 
-      console.log(`[Main] Force killing ${pids.length} remaining child processes...`);
+        console.log(`[Main] Force killing ${pids.length} remaining child processes...`);
 
-      let completed = 0;
-      pids.forEach((pid) => {
-        exec(`taskkill /PID ${pid} /T /F`, () => {
-          completed++;
-          if (completed === pids.length) {
-            setTimeout(resolve, 500); // Wait for OS cleanup
-          }
+        let completed = 0;
+        pids.forEach((pid) => {
+          exec(`taskkill /PID ${pid} /T /F`, () => {
+            completed++;
+            if (completed === pids.length) {
+              setTimeout(resolve, 500); // Wait for OS cleanup
+            }
+          });
         });
       });
-    });
+    } else {
+      // macOS/Linux: Use pkill to kill child processes by parent PID
+      // First try graceful SIGTERM, then SIGKILL
+      exec(`pkill -P ${process.pid}`, (error) => {
+        if (error) {
+          // pkill returns error if no processes found - this is OK
+          console.log('[Main] No child processes to kill or pkill not available');
+        }
+
+        // Wait a moment for graceful shutdown, then force kill any remaining
+        setTimeout(() => {
+          exec(`pkill -9 -P ${process.pid}`, () => {
+            setTimeout(resolve, 500); // Wait for OS cleanup
+          });
+        }, 1000);
+      });
+    }
   });
 }
 
@@ -316,16 +344,20 @@ function setupIpcHandlers(): void {
     await performQuit();
   });
 
+  ipcMain.handle('app:is-maximized', () => {
+    return mainWindow?.isMaximized() ?? false;
+  });
+
   // Host status
   ipcMain.handle('host:get-status', () => {
     return {
       running: mcpHost?.isRunning() ?? false,
-      port: mcpHost?.getPort() ?? DEFAULT_HOST_PORT,
+      port: mcpHost?.getPort() ?? actualHostPort,
     };
   });
 
   ipcMain.handle('host:get-port', () => {
-    return mcpHost?.getPort() ?? DEFAULT_HOST_PORT;
+    return mcpHost?.getPort() ?? actualHostPort;
   });
 
   // Secrets (via keytar in host)
@@ -372,6 +404,27 @@ function setupIpcHandlers(): void {
     runningServersCount = count;
     updateTrayMenu();
   });
+
+  // AI Assistant secrets
+  ipcMain.handle('ai:get-config', async () => {
+    return mcpHost?.getSecretStore().getAIConfig();
+  });
+
+  ipcMain.handle('ai:set-secret', async (_event, key: string, value: string) => {
+    return mcpHost?.getSecretStore().setAISecret(key, value);
+  });
+
+  ipcMain.handle('ai:delete-secret', async (_event, key: string) => {
+    return mcpHost?.getSecretStore().deleteAISecret(key);
+  });
+
+  ipcMain.handle('ai:get-status', async () => {
+    return mcpHost?.getAIAgent().isConfigured() ?? false;
+  });
+
+  ipcMain.handle('ai:reinitialize', async () => {
+    return mcpHost?.getAIAgent().initialize();
+  });
 }
 
 /**
@@ -381,9 +434,17 @@ async function startHost(): Promise<void> {
   try {
     console.log('[Main] Creating McpHost...');
     mcpHost = new McpHost();
-    console.log('[Main] Starting McpHost on port', DEFAULT_HOST_PORT);
-    await mcpHost.start(DEFAULT_HOST_PORT);
-    console.log(`[Main] MCP Host started on port ${DEFAULT_HOST_PORT}`);
+
+    // Find an available port, preferring DEFAULT_HOST_PORT
+    actualHostPort = await getPort({ port: DEFAULT_HOST_PORT });
+
+    if (actualHostPort !== DEFAULT_HOST_PORT) {
+      console.log(`[Main] Port ${DEFAULT_HOST_PORT} is busy, using port ${actualHostPort} instead`);
+    }
+
+    console.log('[Main] Starting McpHost on port', actualHostPort);
+    await mcpHost.start(actualHostPort);
+    console.log(`[Main] MCP Host started on port ${actualHostPort}`);
   } catch (error) {
     console.error('[Main] Failed to start MCP Host:', error);
     throw error;

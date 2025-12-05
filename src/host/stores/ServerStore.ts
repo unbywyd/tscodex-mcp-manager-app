@@ -7,13 +7,14 @@ import fs from 'fs/promises';
 import path from 'path';
 import { v4 as uuid } from 'uuid';
 import type { ServerTemplate, InstallType } from '../../shared/types';
+import { getUserDataPath } from '../../shared/utils';
 
 export class ServerStore {
   private servers: Map<string, ServerTemplate> = new Map();
   private filePath: string;
 
   constructor() {
-    const userDataPath = app?.getPath?.('userData') || process.cwd();
+    const userDataPath = getUserDataPath(app);
     this.filePath = path.join(userDataPath, 'config', 'servers.json');
   }
 
