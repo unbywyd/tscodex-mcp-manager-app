@@ -196,4 +196,10 @@ Structure:
 
 ## License
 
-MIT
+This project is licensed under the [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) license.
+
+- Free to use for non-commercial purposes
+- Attribution required
+- Commercial use requires a separate license
+
+For commercial licensing inquiries, please contact the author.
