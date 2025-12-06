@@ -252,6 +252,78 @@ export function createWorkspaceRoutes(router: Router, ctx: RouteContext): void {
   });
 
   // Update server config for workspace (or global default)
+  // Support both /config and without /config for backwards compatibility
+  router.put('/api/workspaces/:id/servers/:serverId/config', async (req: Request, res: Response) => {
+    try {
+      const { id: workspaceId, serverId } = req.params;
+      const isGlobal = workspaceId === 'global';
+
+      // Support both { config: {...} } and { configOverride: {...} } body formats
+      const body = req.body as {
+        config?: Record<string, unknown>;
+        configOverride?: Record<string, unknown>;
+      };
+      const configOverride = body.config || body.configOverride;
+
+      if (isGlobal) {
+        // For global, update the server template's defaultConfig
+        const server = await ctx.serverStore.get(serverId);
+        if (!server) {
+          res.status(404).json({
+            success: false,
+            error: 'Server not found',
+          });
+          return;
+        }
+
+        await ctx.serverStore.update(serverId, {
+          defaultConfig: configOverride || {},
+        });
+
+        res.json({
+          success: true,
+          config: configOverride || {},
+          isGlobal: true,
+        });
+      } else {
+        // For specific workspace, check if workspace exists
+        const workspace = ctx.workspaceStore.get(workspaceId);
+        if (!workspace) {
+          res.status(404).json({
+            success: false,
+            error: 'Workspace not found',
+          });
+          return;
+        }
+
+        // Get existing config and merge with updates
+        const existingConfig = ctx.workspaceStore.getServerConfig(workspaceId, serverId);
+        await ctx.workspaceStore.setServerConfig(workspaceId, serverId, {
+          enabled: existingConfig?.enabled ?? true,
+          configOverride: configOverride ?? existingConfig?.configOverride,
+          secretKeys: existingConfig?.secretKeys,
+          contextHeaders: existingConfig?.contextHeaders,
+          permissionsOverride: existingConfig?.permissionsOverride,
+        });
+
+        // Emit event so UI updates
+        ctx.eventBus.emitAppEvent({
+          type: 'workspace-updated',
+          data: workspace,
+        });
+
+        const config = ctx.workspaceStore.getServerConfig(workspaceId, serverId);
+        res.json({ success: true, config, isGlobal: false });
+      }
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  });
+
+  // Update server for workspace (legacy endpoint without /config)
   router.put('/api/workspaces/:id/servers/:serverId', async (req: Request, res: Response) => {
     try {
       const { id: workspaceId, serverId } = req.params;

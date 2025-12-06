@@ -15,6 +15,7 @@ import {
 import { Select } from '../ui/select';
 import { validateSchema, ValidationError, getErrorsForPath } from '../../lib/schema-validator';
 import { getApiBase } from '../../lib/api';
+import { useAppStore } from '../../stores/appStore';
 
 // Lazy load heavy editor components
 const RichTextEditor = lazy(() =>
@@ -111,6 +112,7 @@ export function ServerConfigEditor({
   configSchema,
   defaultConfig,
 }: ServerConfigEditorProps) {
+  const { servers, restartServer } = useAppStore();
   const [config, setConfig] = useState<Record<string, unknown>>(defaultConfig || {});
   const [originalConfig, setOriginalConfig] = useState<Record<string, unknown>>(defaultConfig || {});
   const [isLoading, setIsLoading] = useState(true);
@@ -120,6 +122,10 @@ export function ServerConfigEditor({
   const [hasChanges, setHasChanges] = useState(false);
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
   const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
+
+  // Check if server is running
+  const server = servers.find((s) => s.id === serverId);
+  const isServerRunning = server?.status === 'running';
 
   // Load current config on mount
   useEffect(() => {
@@ -202,6 +208,11 @@ export function ServerConfigEditor({
       setOriginalConfig(config);
       setSuccess('Configuration saved successfully');
       setTimeout(() => setSuccess(null), 3000);
+
+      // Restart server if running to apply new configuration
+      if (isServerRunning) {
+        await restartServer(serverId);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save configuration');
     }

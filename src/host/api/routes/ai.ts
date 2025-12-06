@@ -345,6 +345,7 @@ export function createAIRoutes(router: Router, ctx: AIRouteContext): void {
   /**
    * GET /api/ai/proxy/v1/models - Get available models for token
    * Authorization: Bearer <token> (global or server token)
+   * Returns OpenAI-compatible models list format
    */
   router.get('/api/ai/proxy/v1/models', async (req: Request, res: Response) => {
     const authHeader = req.headers.authorization;
@@ -365,7 +366,30 @@ export function createAIRoutes(router: Router, ctx: AIRouteContext): void {
       });
     }
 
-    res.json(modelsInfo);
+    // Convert to OpenAI-compatible format
+    // Build models list: default model + allowed models
+    const modelIds = new Set<string>();
+    if (modelsInfo.defaultModel) {
+      modelIds.add(modelsInfo.defaultModel);
+    }
+    for (const model of modelsInfo.allowedModels) {
+      modelIds.add(model);
+    }
+
+    const models = Array.from(modelIds).map((id) => ({
+      id,
+      object: 'model' as const,
+      created: Math.floor(Date.now() / 1000),
+      owned_by: 'mcp-manager',
+    }));
+
+    res.json({
+      object: 'list',
+      data: models,
+      // Include extra fields for SDK convenience
+      default_model: modelsInfo.defaultModel,
+      rate_limit: modelsInfo.rateLimit,
+    });
   });
 
   /**

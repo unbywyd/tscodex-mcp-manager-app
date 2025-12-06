@@ -56,9 +56,33 @@ contextBridge.exposeInMainWorld('electronAPI', {
   reinitializeAI: () =>
     ipcRenderer.invoke('ai:reinitialize'),
 
+  // Auto-updater
+  checkForUpdates: () =>
+    ipcRenderer.invoke('updater:check'),
+  downloadUpdate: () =>
+    ipcRenderer.invoke('updater:download'),
+  installUpdate: () =>
+    ipcRenderer.invoke('updater:install'),
+  getUpdateStatus: () =>
+    ipcRenderer.invoke('updater:get-status'),
+  onUpdateStatus: (callback: (status: UpdateStatus) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, status: UpdateStatus) => callback(status);
+    ipcRenderer.on('updater:status', handler);
+    return () => ipcRenderer.removeListener('updater:status', handler);
+  },
+
   // Platform info
   platform: process.platform,
 });
+
+// Update status type for preload
+interface UpdateStatus {
+  status: 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error';
+  version?: string;
+  releaseNotes?: string;
+  progress?: number;
+  error?: string;
+}
 
 // Type definitions for renderer
 declare global {
@@ -85,7 +109,22 @@ declare global {
       deleteAISecret: (key: string) => Promise<boolean>;
       getAIStatus: () => Promise<boolean>;
       reinitializeAI: () => Promise<boolean>;
+      // Auto-updater
+      checkForUpdates: () => Promise<UpdateStatus>;
+      downloadUpdate: () => Promise<void>;
+      installUpdate: () => void;
+      getUpdateStatus: () => Promise<UpdateStatus>;
+      onUpdateStatus: (callback: (status: UpdateStatus) => void) => () => void;
       platform: NodeJS.Platform;
     };
+  }
+
+  // Export UpdateStatus for renderer use
+  interface UpdateStatus {
+    status: 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error';
+    version?: string;
+    releaseNotes?: string;
+    progress?: number;
+    error?: string;
   }
 }

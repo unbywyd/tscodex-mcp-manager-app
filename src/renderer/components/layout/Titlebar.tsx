@@ -4,6 +4,7 @@ import { useAppStore } from '../../stores/appStore';
 import { SignInModal } from '../auth/SignInModal';
 import { UserMenu } from '../auth/UserMenu';
 import { AIAssistantButton } from '../ai/AIAssistantButton';
+import { UpdateButton } from '../updater/UpdateNotification';
 import logoImage from '../../assets/logo.png';
 
 export function Titlebar() {
@@ -47,6 +48,9 @@ export function Titlebar() {
 
         {/* Right: Profile & Window controls */}
         <div className="flex items-center gap-4 titlebar-no-drag">
+          {/* Update Button */}
+          <UpdateButton />
+
           {/* AI Assistant Button */}
           <AIAssistantButton />
 

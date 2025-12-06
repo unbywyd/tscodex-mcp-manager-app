@@ -32,6 +32,7 @@ import type {
 import { DEFAULT_SERVER_PERMISSIONS, DEFAULT_AI_PERMISSIONS } from '../../../shared/types';
 import { cn } from '../../lib/utils';
 import { getApiBase } from '../../lib/api';
+import { useAppStore } from '../../stores/appStore';
 
 interface ServerPermissionsEditorProps {
   serverId: string;
@@ -46,10 +47,15 @@ export function ServerPermissionsEditor({
   workspaceId,
   serverName,
 }: ServerPermissionsEditorProps) {
+  const { servers, restartServer } = useAppStore();
   const [activeTab, setActiveTab] = useState<TabId>('global');
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Check if server is running
+  const server = servers.find((s) => s.id === serverId);
+  const isServerRunning = server?.status === 'running';
 
   // Permissions state
   const [globalPermissions, setGlobalPermissions] = useState<ServerPermissions | null>(null);
@@ -147,6 +153,11 @@ export function ServerPermissionsEditor({
       }
 
       setHasChanges(false);
+
+      // Restart server if running to apply new permissions
+      if (isServerRunning) {
+        await restartServer(serverId);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save permissions');
     } finally {
@@ -238,7 +249,9 @@ export function ServerPermissionsEditor({
   const showWorkspaceTab = workspaceId !== 'global';
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col h-full">
+      {/* Scrollable content */}
+      <div className="flex-1 overflow-y-auto space-y-6 pb-4">
       {/* Legacy Warning */}
       {isLegacy && (
         <div className="flex items-start gap-3 p-4 rounded-lg bg-amber-500/10 border border-amber-500/30">
@@ -503,9 +516,10 @@ export function ServerPermissionsEditor({
           </div>
         )}
       </section>
+      </div>
 
-      {/* Actions */}
-      <div className="flex items-center justify-between pt-4 border-t border-gray-700">
+      {/* Sticky footer */}
+      <div className="flex-shrink-0 flex items-center justify-between pt-4 border-t border-gray-700 bg-bg-primary">
         <div>
           {isWorkspaceTab && workspaceOverride && (
             <button
@@ -524,12 +538,7 @@ export function ServerPermissionsEditor({
           <button
             onClick={savePermissions}
             disabled={isSaving || !hasChanges}
-            className={cn(
-              'flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors',
-              hasChanges
-                ? 'bg-blue-500 text-white hover:bg-blue-600'
-                : 'bg-gray-700 text-gray-400 cursor-not-allowed'
-            )}
+            className="btn btn-primary"
           >
             {isSaving ? (
               <>

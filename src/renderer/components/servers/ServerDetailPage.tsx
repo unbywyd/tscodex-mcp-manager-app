@@ -869,8 +869,8 @@ export function ServerDetailPage({ serverId, workspaceId, onBack }: ServerDetail
 
         {/* Permissions Tab */}
         {selectedTab === 'permissions' && (
-          <div className="flex-1 overflow-auto px-4 sm:px-6 py-6">
-            <div className="max-w-3xl mx-auto w-full">
+          <div className="flex-1 flex flex-col overflow-hidden px-4 sm:px-6 py-6">
+            <div className="max-w-3xl mx-auto w-full h-full">
               <ServerPermissionsEditor
                 serverId={serverId}
                 workspaceId={workspaceId}

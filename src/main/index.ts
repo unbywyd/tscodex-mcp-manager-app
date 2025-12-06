@@ -9,6 +9,7 @@ import { exec } from 'child_process';
 import getPort from 'get-port';
 import { McpHost } from '../host';
 import { DEFAULT_HOST_PORT } from '../shared/types';
+import { appUpdater, setupUpdaterIpc } from './updater';
 
 // Track the actual port the host is running on (may differ from DEFAULT if port is busy)
 let actualHostPort: number = DEFAULT_HOST_PORT;
@@ -485,10 +486,22 @@ if (!gotTheLock) {
 
     // Setup IPC
     setupIpcHandlers();
+    setupUpdaterIpc();
 
     // Create window and tray
     await createWindow();
     createTray();
+
+    // Set main window for updater and check for updates (in production only)
+    if (mainWindow) {
+      appUpdater.setMainWindow(mainWindow);
+    }
+    if (!isDev) {
+      // Check for updates after 5 seconds
+      setTimeout(() => {
+        appUpdater.checkForUpdates();
+      }, 5000);
+    }
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Key, Plus, Trash2, Eye, EyeOff, Save, AlertCircle, Info, Loader2 } from 'lucide-react';
+import { useAppStore } from '../../stores/appStore';
 
 /**
  * Scope types for secrets:
@@ -35,6 +36,7 @@ export function ServerSecretsManager({
   serverName,
   workspaceId,
 }: ServerSecretsManagerProps) {
+  const { servers, restartServer } = useAppStore();
   const [secrets, setSecrets] = useState<SecretEntry[]>([]);
   const [showValues, setShowValues] = useState<Record<string, boolean>>({});
   const [isLoading, setIsLoading] = useState(false);
@@ -42,6 +44,10 @@ export function ServerSecretsManager({
   const [error, setError] = useState<string | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
   const [keyErrors, setKeyErrors] = useState<Record<number, string>>({});
+
+  // Check if server is running
+  const server = servers.find((s) => s.id === serverId);
+  const isServerRunning = server?.status === 'running';
 
   // Current scope is always 'server' for this component
   const scope: SecretScope = 'server';
@@ -214,6 +220,11 @@ export function ServerSecretsManager({
       // Reload to get clean state (this will also set hasChanges to false)
       await loadSecrets();
       setKeyErrors({});
+
+      // Restart server if running to apply new secrets
+      if (isServerRunning) {
+        await restartServer(serverId);
+      }
     } catch (err) {
       console.error('Failed to save secrets:', err);
       setError('Failed to save secrets');

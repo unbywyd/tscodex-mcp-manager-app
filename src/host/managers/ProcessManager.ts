@@ -180,13 +180,6 @@ export class ProcessManager {
         permissions
       );
 
-      console.log(`[ProcessManager] Starting server ${serverId}`);
-      console.log(`[ProcessManager] Command: ${command} ${args.join(' ')}`);
-      console.log(`[ProcessManager] Port: ${port}`);
-      console.log(`[ProcessManager] CWD: ${projectRoot || process.cwd()}`);
-      console.log(`[ProcessManager] Install type: ${server.installType}`);
-      console.log(`[ProcessManager] Package: ${server.packageName}@${server.packageVersion || 'latest'}`);
-
       // Spawn process
       const proc = spawn(command, args, {
         env,
@@ -196,7 +189,6 @@ export class ProcessManager {
       });
 
       instance.pid = proc.pid;
-      console.log(`[ProcessManager] Process spawned with PID: ${proc.pid}`);
 
       // Store process info
       this.processes.set(key, { process: proc, instance, stopping: false });
@@ -494,16 +486,12 @@ export class ProcessManager {
       }
 
       env.MCP_AUTH_TOKEN = JSON.stringify(authPayload);
-      console.log(`[ProcessManager] MCP_AUTH_TOKEN set with profile (email: ${userProfile.email})`);
-    } else {
-      console.log(`[ProcessManager] No user profile or not allowed, server will run without auth`);
     }
 
     // 4. Add AI Proxy env vars if AI access is allowed
     const aiEnv = await this.buildAIEnv(serverId, workspaceId);
     if (aiEnv) {
       Object.assign(env, aiEnv);
-      console.log(`[ProcessManager] AI Proxy enabled for ${serverId}`);
     }
 
     return env;
@@ -527,9 +515,10 @@ export class ProcessManager {
 
     // Generate proxy token for this server
     const proxyToken = this.aiAgent.generateProxyToken(serverId, workspaceId);
+    const proxyUrl = `http://127.0.0.1:${this.getHostPort()}/api/ai/proxy/v1`;
 
     return {
-      MCP_AI_PROXY_URL: `http://127.0.0.1:${this.getHostPort()}/api/ai/proxy/v1`,
+      MCP_AI_PROXY_URL: proxyUrl,
       MCP_AI_PROXY_TOKEN: proxyToken,
     };
   }
@@ -685,7 +674,6 @@ export class ProcessManager {
     proc.stdout?.on('data', (data: Buffer) => {
       const message = data.toString().trim();
       if (message) {
-        console.log(`[ProcessManager] [${instance.serverId}] stdout: ${message}`);
         this.eventBus.emitServerEvent({
           type: 'server-log',
           serverId: instance.serverId,
@@ -699,7 +687,6 @@ export class ProcessManager {
     proc.stderr?.on('data', (data: Buffer) => {
       const message = data.toString().trim();
       if (message) {
-        console.error(`[ProcessManager] [${instance.serverId}] stderr: ${message}`);
         this.eventBus.emitServerEvent({
           type: 'server-log',
           serverId: instance.serverId,
@@ -711,7 +698,6 @@ export class ProcessManager {
 
     // Process exit
     proc.on('exit', (code, signal) => {
-      console.log(`Process ${key} exited with code ${code}, signal ${signal}`);
 
       const info = this.processes.get(key);
       if (info) {
@@ -726,9 +712,6 @@ export class ProcessManager {
 
     // Process error (spawn error, e.g., command not found)
     proc.on('error', (error) => {
-      console.error(`[ProcessManager] [${instance.serverId}] spawn error:`, error.message);
-      console.error(`[ProcessManager] [${instance.serverId}] error details:`, error);
-
       const info = this.processes.get(key);
       if (info) {
         info.instance.status = 'error';
@@ -762,7 +745,6 @@ export class ProcessManager {
 
     // Check restart limit
     if (instance.restartAttempts > MAX_RESTART_ATTEMPTS) {
-      console.log(`Process ${key} exceeded restart limit (${instance.restartAttempts}/${MAX_RESTART_ATTEMPTS})`);
       instance.status = 'error';
       instance.lastError = 'Exceeded restart attempts';
 
@@ -779,15 +761,12 @@ export class ProcessManager {
       return;
     }
 
-    console.log(`Restarting process ${key}, attempt ${instance.restartAttempts}/${MAX_RESTART_ATTEMPTS}`);
-
     try {
       await delay(1000 * instance.restartAttempts); // Backoff
 
       // Check if server still exists before restarting
       const server = await this.serverStore.get(instance.serverId);
       if (!server) {
-        console.log(`Server ${instance.serverId} no longer exists, skipping restart`);
         this.portManager.release(key);
         this.processes.delete(key);
         return;
@@ -796,7 +775,6 @@ export class ProcessManager {
       // Check if we've been stopped intentionally
       const currentInfo = this.processes.get(key);
       if (currentInfo?.stopping) {
-        console.log(`Process ${key} was stopped intentionally, skipping restart`);
         return;
       }
 
@@ -826,12 +804,12 @@ export class ProcessManager {
             prompts?: number;
           };
           // Update instance with server info
-          if (data.tools) instance.toolsCount = data.tools;
-          if (data.resources) instance.resourcesCount = data.resources;
-          if (data.prompts) instance.promptsCount = data.prompts;
+          if (data.tools !== undefined) instance.toolsCount = data.tools;
+          if (data.resources !== undefined) instance.resourcesCount = data.resources;
+          if (data.prompts !== undefined) instance.promptsCount = data.prompts;
 
-          // Fetch full metadata to get contextHeaders and other runtime info
-          this.fetchAndStoreMetadata(port, instance.serverId, instance.workspaceId).catch((err) => {
+          // Fetch full metadata to get tools, resources, prompts, contextHeaders and other runtime info
+          this.fetchAndStoreMetadata(port, instance).catch((err) => {
             console.warn(`[ProcessManager] Failed to fetch metadata for ${instance.serverId}:`, err);
           });
 
@@ -848,9 +826,9 @@ export class ProcessManager {
   }
 
   /**
-   * Fetch server metadata and store contextHeaders in ServerStore
+   * Fetch server metadata and store capabilities, contextHeaders in ServerStore
    */
-  private async fetchAndStoreMetadata(port: number, serverId: string, workspaceId: string): Promise<void> {
+  private async fetchAndStoreMetadata(port: number, instance: ServerInstance): Promise<void> {
     try {
       const response = await fetch(`http://127.0.0.1:${port}/gateway/metadata`, {
         signal: AbortSignal.timeout(5000),
@@ -859,14 +837,36 @@ export class ProcessManager {
       if (!response.ok) return;
 
       const data = (await response.json()) as {
+        tools?: Array<unknown>;
+        resources?: Array<unknown>;
+        prompts?: Array<unknown>;
         contextHeaders?: string[];
         config?: {
           schema?: Record<string, unknown>;
         };
       };
 
+      // Update instance with capabilities
+      const toolsCount = data.tools?.length ?? 0;
+      const resourcesCount = data.resources?.length ?? 0;
+      const promptsCount = data.prompts?.length ?? 0;
+
+      instance.toolsCount = toolsCount;
+      instance.resourcesCount = resourcesCount;
+      instance.promptsCount = promptsCount;
+
       // Update server template with runtime metadata
-      const updates: { contextHeaders?: string[]; configSchema?: Record<string, unknown> } = {};
+      const updates: {
+        toolsCount?: number;
+        resourcesCount?: number;
+        promptsCount?: number;
+        contextHeaders?: string[];
+        configSchema?: Record<string, unknown>;
+      } = {
+        toolsCount,
+        resourcesCount,
+        promptsCount,
+      };
 
       if (data.contextHeaders && data.contextHeaders.length > 0) {
         updates.contextHeaders = data.contextHeaders;
@@ -876,18 +876,15 @@ export class ProcessManager {
         updates.configSchema = data.config.schema;
       }
 
-      if (Object.keys(updates).length > 0) {
-        await this.serverStore.update(serverId, updates);
-        console.log(`[ProcessManager] Updated server ${serverId} metadata:`, Object.keys(updates));
+      await this.serverStore.update(instance.serverId, updates);
 
-        // Emit event so UI refreshes with new metadata
-        this.eventBus.emitServerEvent({
-          type: 'server-started',
-          serverId,
-          workspaceId,
-          data: { port },
-        });
-      }
+      // Emit event so UI refreshes with new metadata
+      this.eventBus.emitServerEvent({
+        type: 'server-started',
+        serverId: instance.serverId,
+        workspaceId: instance.workspaceId,
+        data: { port },
+      });
     } catch {
       // Silently ignore - metadata fetch is best-effort
     }

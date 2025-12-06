@@ -4,8 +4,12 @@
   "description": "Standalone MCP Server Manager - Centralized process management for MCP servers",
   "type": "module",
   "main": "dist/main/index.js",
-  "author": "tscodex",
-  "license": "MIT",
+  "author": {
+    "name": "Artyom Gorlovetskiy",
+    "email": "unbywyd@gmail.com",
+    "url": "https://unbywyd.com"
+  },
+  "license": "CC-BY-NC-4.0",
   "scripts": {
     "dev": "npm run build:main && concurrently -k -n main,renderer,electron -c blue,green,yellow \"npm run dev:main\" \"npm run dev:renderer\" \"npm run dev:electron\"",
     "dev:main": "tsup --watch",
@@ -22,13 +26,14 @@
     "prepack": "npm run kill:processes",
     "pack": "electron-builder --dir",
     "predist": "npm run kill:processes",
-    "dist": "electron-builder",
+    "dist": "electron-builder --publish never",
     "predist:win": "npm run kill:processes",
-    "dist:win": "electron-builder --win",
+    "dist:win": "electron-builder --win --publish never",
     "predist:mac": "npm run kill:processes",
-    "dist:mac": "electron-builder --mac",
+    "dist:mac": "electron-builder --mac --publish never",
     "predist:linux": "npm run kill:processes",
-    "dist:linux": "electron-builder --linux",
+    "dist:linux": "electron-builder --linux --publish never",
+    "postinstall": "electron-builder install-app-deps",
     "lint": "eslint src --ext .ts,.tsx",
     "typecheck": "tsc --noEmit -p tsconfig.main.json"
   },
@@ -55,6 +60,7 @@
     "clsx": "^2.1.1",
     "codemirror": "^6.0.2",
     "electron-store": "^8.1.0",
+    "electron-updater": "^6.6.2",
     "get-port": "^7.0.0",
     "keytar": "^7.9.0",
     "lowlight": "^3.3.0",
@@ -134,6 +140,11 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "unbywyd",
+      "repo": "tscodex-mcp-manager-app"
     }
   }
 }

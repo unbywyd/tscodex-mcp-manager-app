@@ -235,13 +235,26 @@ export class AIAgent {
     const server = await this.serverStore.get(serverId);
     if (!server) return null;
 
+    // Get global AI permissions from server config
+    const globalAI = server.permissions?.ai;
+
+    // For 'global' workspace, only use server's global permissions
+    if (workspaceId === 'global') {
+      if (!globalAI) {
+        return null;
+      }
+      return {
+        allowAccess: globalAI.allowAccess ?? false,
+        allowedModels: globalAI.allowedModels ?? [],
+        rateLimit: globalAI.rateLimit ?? 0,
+      };
+    }
+
+    // For specific workspace, check if it exists
     const workspace = this.workspaceStore.get(workspaceId);
     if (!workspace) return null;
 
     const serverConfig = this.workspaceStore.getServerConfig(workspaceId, serverId);
-
-    // Get global AI permissions
-    const globalAI = server.permissions?.ai;
 
     // Get workspace override
     const workspaceAI = serverConfig?.permissionsOverride?.ai;
