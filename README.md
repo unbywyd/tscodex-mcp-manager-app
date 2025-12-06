@@ -414,6 +414,8 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 
 ### Cursor / VS Code
 
+**VS Code Extension**: [MCP Manager Bridge](https://github.com/unbywyd/tscodex-msp-manager-bridge) - Official VS Code/Cursor extension that provides a bridge to MCP Manager, allowing you to view and control MCP servers directly from your IDE.
+
 Use the MCP extension and configure the gateway URL:
 ```
 http://127.0.0.1:4040/mcp/{serverId}/{workspaceId}
