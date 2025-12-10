@@ -124,6 +124,7 @@ export class WorkspaceStore {
     source?: WorkspaceSource;
     sourceInstanceId?: string;
     sourceLabel?: string;
+    autoCleanup?: boolean;
   }): Promise<WorkspaceConfig> {
     // Check if workspace already exists for this path
     const existing = this.findByProjectRoot(data.projectRoot);
@@ -140,6 +141,7 @@ export class WorkspaceStore {
       source: data.source || 'manual',
       sourceInstanceId: data.sourceInstanceId,
       sourceLabel: data.sourceLabel,
+      autoCleanup: data.autoCleanup,
       createdAt: now,
       updatedAt: now,
     };

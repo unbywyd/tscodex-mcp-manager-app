@@ -188,6 +188,8 @@ export interface WorkspaceConfig {
   sourceInstanceId?: string;
   /** Human-readable label for the source (e.g., "Cursor", "VS Code", "Claude Code") */
   sourceLabel?: string;
+  /** If true, workspace will be auto-deleted when all sessions disconnect (for API-created workspaces) */
+  autoCleanup?: boolean;
 
   createdAt: number;
   updatedAt: number;

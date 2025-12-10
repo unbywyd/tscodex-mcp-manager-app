@@ -42,6 +42,7 @@ export function createSessionRoutes(router: Router, ctx: RouteContext): void {
           source: 'api', // Created via API (IDE extension, etc.)
           sourceInstanceId: clientInstanceId,
           sourceLabel, // e.g., "Cursor", "VS Code", "Claude Code"
+          autoCleanup: true, // Auto-delete when all sessions disconnect (unless user configures secrets/headers)
         });
 
         ctx.eventBus.emitAppEvent({
@@ -141,6 +142,8 @@ export function createSessionRoutes(router: Router, ctx: RouteContext): void {
       const body = req.body as { sessionId?: string };
       const { sessionId } = body;
 
+      console.log(`[Sessions] Disconnect request received for sessionId: ${sessionId}`);
+
       if (!sessionId) {
         res.status(400).json({
           success: false,
@@ -150,6 +153,10 @@ export function createSessionRoutes(router: Router, ctx: RouteContext): void {
       }
 
       const session = ctx.sessionStore.get(sessionId);
+      const workspaceId = session?.workspaceId;
+
+      console.log(`[Sessions] Session found: ${!!session}, workspaceId: ${workspaceId}`);
+
       ctx.sessionStore.delete(sessionId);
 
       if (session) {
@@ -157,6 +164,33 @@ export function createSessionRoutes(router: Router, ctx: RouteContext): void {
           type: 'session-disconnected',
           data: { sessionId },
         });
+
+        // Auto-cleanup workspace if flagged and no other sessions
+        if (workspaceId && workspaceId !== GLOBAL_WORKSPACE_ID) {
+          const workspace = ctx.workspaceStore.get(workspaceId);
+          const hasOtherSessions = ctx.sessionStore.findByWorkspace(workspaceId).length > 0;
+
+          console.log(`[Sessions] Workspace ${workspaceId}: autoCleanup=${workspace?.autoCleanup}, hasOtherSessions=${hasOtherSessions}`);
+
+          if (workspace?.autoCleanup && !hasOtherSessions) {
+            console.log(`[Sessions] Auto-cleaning workspace ${workspaceId} (${workspace.label})`);
+
+            // Stop any running instances for this workspace
+            const instances = ctx.processManager.getAllInstances()
+              .filter((i) => i.workspaceId === workspaceId);
+            for (const instance of instances) {
+              await ctx.processManager.stop(instance.serverId, workspaceId);
+            }
+
+            // Delete workspace
+            await ctx.workspaceStore.delete(workspaceId);
+
+            ctx.eventBus.emitAppEvent({
+              type: 'workspace-deleted',
+              data: { id: workspaceId, reason: 'auto-cleanup' },
+            });
+          }
+        }
       }
 
       res.json({ success: true });

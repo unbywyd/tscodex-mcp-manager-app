@@ -73,6 +73,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Platform info
   platform: process.platform,
+
+  // App info
+  getAppVersion: () => ipcRenderer.invoke('app:get-version'),
 });
 
 // Update status type for preload
@@ -116,6 +119,7 @@ declare global {
       getUpdateStatus: () => Promise<UpdateStatus>;
       onUpdateStatus: (callback: (status: UpdateStatus) => void) => () => void;
       platform: NodeJS.Platform;
+      getAppVersion: () => Promise<string>;
     };
   }
 

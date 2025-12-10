@@ -378,6 +378,11 @@ export function createWorkspaceRoutes(router: Router, ctx: RouteContext): void {
           permissionsOverride: existingConfig?.permissionsOverride,
         });
 
+        // If user sets contextHeaders, disable auto-cleanup (workspace is now "configured")
+        if (contextHeaders && Object.keys(contextHeaders).length > 0 && workspace.autoCleanup) {
+          await ctx.workspaceStore.update(workspaceId, { autoCleanup: false });
+        }
+
         // Emit event so UI updates
         ctx.eventBus.emitAppEvent({
           type: 'workspace-updated',

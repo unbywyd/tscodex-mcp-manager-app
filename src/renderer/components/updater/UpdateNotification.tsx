@@ -396,8 +396,7 @@ export function UpdateButton() {
         );
 
       case 'idle':
-      case 'not-available':
-        // Show checking state when dropdown is manually opened
+        // Show checking state when dropdown is manually opened (before check starts)
         if (showDropdown) {
           return (
             <div className="p-3 w-64">
@@ -411,6 +410,10 @@ export function UpdateButton() {
             </div>
           );
         }
+        return null;
+
+      case 'not-available':
+        // Feedback is shown via showFeedback block above
         return null;
 
       default:

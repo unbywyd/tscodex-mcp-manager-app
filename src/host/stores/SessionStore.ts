@@ -5,18 +5,28 @@
 import { v4 as uuid } from 'uuid';
 import type { WorkspaceSession, ClientType, SESSION_TIMEOUT } from '../../shared/types';
 
-const SESSION_CLEANUP_INTERVAL = 30000; // 30 seconds
-const DEFAULT_SESSION_TIMEOUT = 60000; // 1 minute
+const SESSION_CLEANUP_INTERVAL = 15000; // 15 seconds
+const DEFAULT_SESSION_TIMEOUT = 40000; // 40 seconds
+
+export type SessionExpiredCallback = (sessionId: string, workspaceId: string) => void;
 
 export class SessionStore {
   private sessions: Map<string, WorkspaceSession> = new Map();
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
+  private onSessionExpired: SessionExpiredCallback | null = null;
 
   constructor() {
     // Start cleanup timer
     this.cleanupTimer = setInterval(() => {
       this.cleanupExpiredSessions();
     }, SESSION_CLEANUP_INTERVAL);
+  }
+
+  /**
+   * Set callback for when sessions expire (for auto-cleanup)
+   */
+  setOnSessionExpired(callback: SessionExpiredCallback): void {
+    this.onSessionExpired = callback;
   }
 
   /**
@@ -134,17 +144,22 @@ export class SessionStore {
    */
   private cleanupExpiredSessions(): void {
     const now = Date.now();
-    const expired: string[] = [];
+    const expired: { sessionId: string; workspaceId: string }[] = [];
 
     for (const [sessionId, session] of this.sessions) {
       if (now - session.lastSeenAt > DEFAULT_SESSION_TIMEOUT) {
-        expired.push(sessionId);
+        expired.push({ sessionId, workspaceId: session.workspaceId });
       }
     }
 
-    for (const sessionId of expired) {
-      console.log(`Cleaning up expired session: ${sessionId}`);
+    for (const { sessionId, workspaceId } of expired) {
+      console.log(`Cleaning up expired session: ${sessionId} (workspace: ${workspaceId})`);
       this.sessions.delete(sessionId);
+
+      // Notify about expired session for auto-cleanup
+      if (this.onSessionExpired) {
+        this.onSessionExpired(sessionId, workspaceId);
+      }
     }
   }
 

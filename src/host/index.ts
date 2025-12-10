@@ -128,6 +128,36 @@ export class McpHost {
     // Set AI Agent on process manager for proxy token generation
     this.processManager.setAIAgent(this.aiAgent);
 
+    // Setup session expiry callback for auto-cleanup
+    this.sessionStore.setOnSessionExpired(async (sessionId, workspaceId) => {
+      console.log(`[McpHost] Session ${sessionId} expired, checking workspace ${workspaceId} for auto-cleanup`);
+
+      // Check if workspace should be auto-cleaned
+      if (workspaceId && workspaceId !== 'global') {
+        const workspace = this.workspaceStore.get(workspaceId);
+        const hasOtherSessions = this.sessionStore.findByWorkspace(workspaceId).length > 0;
+
+        if (workspace?.autoCleanup && !hasOtherSessions) {
+          console.log(`[McpHost] Auto-cleaning workspace ${workspaceId} (${workspace.label}) after session timeout`);
+
+          // Stop any running instances for this workspace
+          const instances = this.processManager.getAllInstances()
+            .filter((i) => i.workspaceId === workspaceId);
+          for (const instance of instances) {
+            await this.processManager.stop(instance.serverId, workspaceId);
+          }
+
+          // Delete workspace
+          await this.workspaceStore.delete(workspaceId);
+
+          this.eventBus.emitAppEvent({
+            type: 'workspace-deleted',
+            data: { id: workspaceId, reason: 'auto-cleanup' },
+          });
+        }
+      }
+    });
+
     // Setup API routes
     setupRoutes(this.router, {
       serverStore: this.serverStore,
@@ -241,6 +271,13 @@ export class McpHost {
    */
   getSecretStore(): SecretStore {
     return this.secretStore;
+  }
+
+  /**
+   * Get workspace store for IPC access
+   */
+  getWorkspaceStore(): WorkspaceStore {
+    return this.workspaceStore;
   }
 
   /**

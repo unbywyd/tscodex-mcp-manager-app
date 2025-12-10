@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { X, ExternalLink, Package, User, Building2, Globe } from 'lucide-react';
 
 interface AboutModalProps {
@@ -5,9 +6,15 @@ interface AboutModalProps {
   onOpenChange: (open: boolean) => void;
 }
 
-const APP_VERSION = '1.0.0';
-
 export function AboutModal({ open, onOpenChange }: AboutModalProps) {
+  const [appVersion, setAppVersion] = useState<string>('...');
+
+  useEffect(() => {
+    if (open) {
+      window.electronAPI?.getAppVersion?.().then(setAppVersion).catch(() => setAppVersion('unknown'));
+    }
+  }, [open]);
+
   if (!open) return null;
 
   return (
@@ -36,7 +43,7 @@ export function AboutModal({ open, onOpenChange }: AboutModalProps) {
           {/* App Info */}
           <div className="text-center">
             <h3 className="text-xl font-bold text-white mb-1">MCP Manager</h3>
-            <p className="text-sm text-gray-400">Version {APP_VERSION}</p>
+            <p className="text-sm text-gray-400">Version {appVersion}</p>
           </div>
 
           {/* Description */}

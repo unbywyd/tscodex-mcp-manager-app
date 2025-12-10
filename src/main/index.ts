@@ -349,6 +349,10 @@ function setupIpcHandlers(): void {
     return mainWindow?.isMaximized() ?? false;
   });
 
+  ipcMain.handle('app:get-version', () => {
+    return app.getVersion();
+  });
+
   // Host status
   ipcMain.handle('host:get-status', () => {
     return {
@@ -367,7 +371,17 @@ function setupIpcHandlers(): void {
   });
 
   ipcMain.handle('secrets:set', async (_event, serverId: string, key: string, value: string, scope: string, workspaceId?: string) => {
-    return mcpHost?.getSecretStore().setSecret(serverId, key, value, scope as 'global' | 'workspace', workspaceId);
+    const result = await mcpHost?.getSecretStore().setSecret(serverId, key, value, scope as 'global' | 'workspace', workspaceId);
+
+    // If setting a workspace-specific secret, disable auto-cleanup for that workspace
+    if (scope === 'workspace' && workspaceId && mcpHost) {
+      const workspace = mcpHost.getWorkspaceStore().get(workspaceId);
+      if (workspace?.autoCleanup) {
+        await mcpHost.getWorkspaceStore().update(workspaceId, { autoCleanup: false });
+      }
+    }
+
+    return result;
   });
 
   ipcMain.handle('secrets:delete', async (_event, serverId: string, key: string, scope: string, workspaceId?: string) => {
