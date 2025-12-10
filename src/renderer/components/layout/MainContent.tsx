@@ -164,7 +164,7 @@ export function MainContent({ workspaceId }: MainContentProps) {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6 relative z-10">
+      <div className="flex-1 flex flex-col overflow-hidden relative z-10">
         {selectedTab === 'servers' ? (
           <ServerList
             workspaceId={workspaceId}
@@ -172,7 +172,9 @@ export function MainContent({ workspaceId }: MainContentProps) {
             onOpenMcpTools={() => setShowMcpTools(true)}
           />
         ) : (
-          <SecretsView workspaceId={workspaceId} />
+          <div className="flex-1 overflow-y-auto p-6">
+            <SecretsView workspaceId={workspaceId} />
+          </div>
         )}
       </div>
 

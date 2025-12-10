@@ -143,102 +143,109 @@ export function ServerList({ workspaceId, onOpenServerDetails, onOpenMcpTools }:
 
   return (
     <>
-      <div className="space-y-4">
-        {/* Header with Search and Restart All button */}
-        <div className="flex items-center justify-between gap-3">
-          {/* Search input */}
-          <div className="relative max-w-xs">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search servers..."
-              className="w-full pl-10 pr-3 py-2 bg-bg-secondary border border-border-default rounded-md text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-white/50"
-            />
-          </div>
+      <div className="flex flex-col h-full overflow-hidden">
+        {/* Fixed Header with Search and Restart All button */}
+        <div className="flex-shrink-0 px-6 pt-6 pb-4 border-b border-border-default">
+          <div className="flex items-center justify-between gap-3">
+            {/* Search input */}
+            <div className="relative max-w-xs">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search servers..."
+                className="w-full pl-10 pr-3 py-2 bg-bg-secondary border border-border-default rounded-md text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-white/50"
+              />
+            </div>
 
-          {/* Right side buttons */}
-          <div className="flex items-center gap-2">
-            {/* Add Server button (icon only) - only for global workspace */}
-            {isGlobalWorkspace && (
-              <button
-                onClick={() => setShowAddServer(true)}
-                className="btn btn-primary p-2 flex-shrink-0"
-                title="Add MCP Server"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-            )}
-
-            {/* Restart All button */}
-            <button
-              onClick={handleRestartAll}
-              disabled={isRestarting || runningServersCount === 0}
-              className="btn btn-secondary text-sm flex-shrink-0"
-              title={
-                runningServersCount === 0
-                  ? 'No running servers'
-                  : 'Restart all running servers'
-              }
-            >
-              {isRestarting ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                  Restarting...
-                </>
-              ) : (
-                <>
-                  <RotateCcw className="w-4 h-4 mr-1" />
-                  Restart All ({runningServersCount})
-                </>
+            {/* Right side buttons */}
+            <div className="flex items-center gap-2">
+              {/* Add Server button (icon only) - only for global workspace */}
+              {isGlobalWorkspace && (
+                <button
+                  onClick={() => setShowAddServer(true)}
+                  className="btn btn-primary p-2 flex-shrink-0"
+                  title="Add MCP Server"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
               )}
-            </button>
+
+              {/* Restart All button */}
+              <button
+                onClick={handleRestartAll}
+                disabled={isRestarting || runningServersCount === 0}
+                className="btn btn-secondary text-sm flex-shrink-0"
+                title={
+                  runningServersCount === 0
+                    ? 'No running servers'
+                    : 'Restart all running servers'
+                }
+              >
+                {isRestarting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                    Restarting...
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw className="w-4 h-4 mr-1" />
+                    Restart All ({runningServersCount})
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* MCP Tools card - only for global workspace */}
-        {isGlobalWorkspace && (
-          <McpToolsCard
-            workspaceId={workspaceId}
-            onOpenDetails={onOpenMcpTools}
-          />
-        )}
+        {/* Scrollable content */}
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          <div className="space-y-4">
+            {/* MCP Tools card - only for global workspace */}
+            {isGlobalWorkspace && (
+              <McpToolsCard
+                workspaceId={workspaceId}
+                onOpenDetails={onOpenMcpTools}
+              />
+            )}
 
-        {/* Server cards */}
-        {filteredServers.length === 0 ? (
-          <div className="flex items-center justify-center py-12 text-center">
-            <div className="max-w-md">
-              <Search className="w-12 h-12 text-gray-600 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-400 mb-2">No servers found</h3>
-              <p className="text-sm text-gray-500">
-                {debouncedSearchQuery.trim()
-                  ? `No servers match "${debouncedSearchQuery}"`
-                  : 'No servers available'}
-              </p>
-            </div>
+            {/* Server cards */}
+            {filteredServers.length === 0 ? (
+              <div className="flex items-center justify-center py-12 text-center">
+                <div className="max-w-md">
+                  <Search className="w-12 h-12 text-gray-600 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-gray-400 mb-2">No servers found</h3>
+                  <p className="text-sm text-gray-500">
+                    {debouncedSearchQuery.trim()
+                      ? `No servers match "${debouncedSearchQuery}"`
+                      : 'No servers available'}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              filteredServers.map((server) => (
+                <ServerCard
+                  key={server.id}
+                  server={server}
+                  workspaceId={workspaceId}
+                  onOpenDetails={onOpenServerDetails}
+                />
+              ))
+            )}
+
+            {/* Add server card - only for global workspace */}
+            {isGlobalWorkspace && (
+              <button
+                onClick={() => setShowAddServer(true)}
+                className="w-full card card-hover p-4 flex items-center justify-center gap-2 text-gray-400 hover:text-white"
+              >
+                <Plus className="w-5 h-5" />
+                <span>Add MCP Server</span>
+              </button>
+            )}
           </div>
-        ) : (
-          filteredServers.map((server) => (
-            <ServerCard
-              key={server.id}
-              server={server}
-              workspaceId={workspaceId}
-              onOpenDetails={onOpenServerDetails}
-            />
-          ))
-        )}
-
-        {/* Add server card - only for global workspace */}
-        {isGlobalWorkspace && (
-          <button
-            onClick={() => setShowAddServer(true)}
-            className="w-full card card-hover p-4 flex items-center justify-center gap-2 text-gray-400 hover:text-white"
-          >
-            <Plus className="w-5 h-5" />
-            <span>Add MCP Server</span>
-          </button>
-        )}
+        </div>
       </div>
 
       {showAddServer && (
